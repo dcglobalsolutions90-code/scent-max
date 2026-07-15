@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scent Life BLE Explorer</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --panel-alt: #1b1f26;
+    --border: #262b33;
+    --text: #e6e8eb;
+    --text-dim: #8b93a1;
+    --accent: #4fd1c5;
+    --accent-dim: #2c7a72;
+    --warn: #f0b429;
+    --bad: #e5534b;
+    --good: #4fd17a;
+    --mono: "SF Mono", "Menlo", "Consolas", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body { padding-bottom: 3rem; }
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem 1rem;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
+  }
+  header h1 { font-size: 1rem; margin: 0; font-weight: 600; letter-spacing: 0.02em; }
+  header h1 span { color: var(--accent); }
+  .status-pill {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .status-pill.connecting { color: var(--warn); border-color: var(--warn); }
+  .status-pill.connected { color: var(--good); border-color: var(--good); }
+  .status-pill.disconnected { color: var(--bad); border-color: var(--bad); }
+  main { max-width: 900px; margin: 0 auto; padding: 1rem; }
+  .btn {
+    font-family: inherit;
+    font-size: 0.85rem;
+    background: var(--panel-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent-dim); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.primary { background: var(--accent-dim); border-color: var(--accent); color: #fff; }
+  .btn.danger { border-color: var(--bad); color: var(--bad); }
+  .btn.small { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+  }
+  section.panel > h2 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin: 0 0 0.6rem 0;
+  }
+  label.field {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 0.35rem;
+  }
+  input[type=text], textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+  }
+  .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  .row.between { justify-content: space-between; }
+  .hint { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.35rem; line-height: 1.4; }
+  .service {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 0.7rem;
+    overflow: hidden;
+  }
+  .service > .service-head {
+    background: var(--panel-alt);
+    padding: 0.55rem 0.75rem;
+    cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.5rem;
+  }
+  .service > .service-head .uuid { font-family: var(--mono); font-size: 0.8rem; word-break: break-all; }
+  .service > .service-head .name { font-size: 0.72rem; color: var(--accent); }
+  .service-body { padding: 0.6rem 0.75rem; display: none; }
+  .service.open .service-body { display: block; }
+  .service .chevron { transition: transform 0.15s; color: var(--text-dim); }
+  .service.open .chevron { transform: rotate(90deg); }
+  .char {
+    border-top: 1px solid var(--border);
+    padding: 0.6rem 0;
+  }
+  .char:first-child { border-top: none; padding-top: 0; }
+  .char .uuid { font-family: var(--mono); font-size: 0.78rem; word-break: break-all; }
+  .badges { display: flex; gap: 0.3rem; flex-wrap: wrap; margin: 0.3rem 0; }
+  .badge {
+    font-size: 0.65rem;
+    font-family: var(--mono);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .badge.on { color: var(--accent); border-color: var(--accent-dim); }
+  .char .value-box {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.45rem 0.6rem;
+    margin: 0.4rem 0;
+    word-break: break-all;
+    min-height: 1.2rem;
+  }
+  .char .value-box .ascii { color: var(--text-dim); }
+  .char .controls { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-top: 0.3rem; }
+  .char .controls input[type=text] { flex: 1; min-width: 120px; }
+  #log {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem;
+    height: 220px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  #log .entry { padding: 0.1rem 0; border-bottom: 1px dashed #1e222a; }
+  #log .entry .ts { color: var(--text-dim); }
+  #log .entry.notify .ts { color: var(--accent); }
+  #log .entry.write .ts { color: var(--warn); }
+  #log .entry.err .ts { color: var(--bad); }
+  .empty { color: var(--text-dim); font-size: 0.85rem; padding: 0.5rem 0; }
+  footer { text-align: center; color: var(--text-dim); font-size: 0.72rem; padding: 1rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Scent Life <span>BLE Explorer</span></h1>
+  <div class="row">
+    <span class="status-pill disconnected" id="statusPill">disconnected</span>
+  </div>
+</header>
+
+<main>
+
+  <section class="panel">
+    <h2>Connection</h2>
+    <div class="row">
+      <button class="btn primary" id="scanBtn">Scan &amp; Connect</button>
+      <button class="btn danger" id="disconnectBtn" disabled>Disconnect</button>
+      <button class="btn small" id="rediscoverBtn" disabled>Re-discover services</button>
+    </div>
+    <div class="hint" id="deviceInfo"></div>
+
+    <div style="margin-top:0.7rem;">
+      <label class="field" for="extraServices">
+        Extra optional service UUIDs (comma-separated, 128-bit or short hex like <code>ffe0</code>).
+        Web Bluetooth only exposes services listed here at request time &mdash; add any you already
+        know about (e.g. from a PacketLogger capture or nRF Connect) before scanning.
+      </label>
+      <input type="text" id="extraServices" placeholder="e.g. 0000fff0-0000-1000-8000-00805f9b34fb, ffe0">
+      <div class="hint">
+        Saved locally between visits. Bluefy's Web Bluetooth implementation is generally more permissive
+        than desktop Chrome about exposing custom services once connected, but listing known UUIDs here
+        still helps and is required for the initial device picker filter.
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Services &amp; Characteristics</h2>
+    <div id="services"><div class="empty">Not connected yet.</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Log</h2>
+    <div class="row between" style="margin-bottom:0.5rem;">
+      <div class="hint">Reads, writes, and notifications are timestamped here. Use this to build the protocol spec.</div>
+      <div class="row">
+        <button class="btn small" id="copyLogBtn">Copy</button>
+        <button class="btn small" id="exportLogBtn">Export .json</button>
+        <button class="btn small" id="clearLogBtn">Clear</button>
+      </div>
+    </div>
+    <div id="log"></div>
+  </section>
+
+</main>
+
+<footer>
+  Requires a Web Bluetooth capable browser (Bluefy on iOS, or Chrome on desktop/Android). Must be served over HTTPS.
+</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const statusPill = $('statusPill');
+  const scanBtn = $('scanBtn');
+  const disconnectBtn = $('disconnectBtn');
+  const rediscoverBtn = $('rediscoverBtn');
+  const deviceInfo = $('deviceInfo');
+  const servicesEl = $('services');
+  const extraServicesInput = $('extraServices');
+  const logEl = $('log');
+
+  let device = null;
+  let server = null;
+  const notifyHandlers = new Map(); // characteristic.uuid+instance -> handler fn
+
+  // ---- persistence ----
+  const LS_KEY = 'scent-explorer.extraServices';
+  extraServicesInput.value = localStorage.getItem(LS_KEY) || '';
+  extraServicesInput.addEventListener('change', () => {
+    localStorage.setItem(LS_KEY, extraServicesInput.value);
+  });
+
+  // ---- known UUID names (helps label standard + common vendor services) ----
+  const KNOWN_NAMES = {
+    '00001800-0000-1000-8000-00805f9b34fb': 'Generic Access',
+    '00001801-0000-1000-8000-00805f9b34fb': 'Generic Attribute',
+    '0000180a-0000-1000-8000-00805f9b34fb': 'Device Information',
+    '0000180f-0000-1000-8000-00805f9b34fb': 'Battery Service',
+    '00002a00-0000-1000-8000-00805f9b34fb': 'Device Name',
+    '00002a19-0000-1000-8000-00805f9b34fb': 'Battery Level',
+    '00002a29-0000-1000-8000-00805f9b34fb': 'Manufacturer Name',
+    '00002a24-0000-1000-8000-00805f9b34fb': 'Model Number',
+    '00002a26-0000-1000-8000-00805f9b34fb': 'Firmware Revision',
+    '0000ffe0-0000-1000-8000-00805f9b34fb': 'HM-10 / generic UART-over-BLE service',
+    '0000ffe1-0000-1000-8000-00805f9b34fb': 'HM-10 / generic UART-over-BLE characteristic',
+    '6e400001-b5a3-f393-e0a9-e50e24dcca9e': 'Nordic UART Service',
+    '6e400002-b5a3-f393-e0a9-e50e24dcca9e': 'Nordic UART TX (write)',
+    '6e400003-b5a3-f393-e0a9-e50e24dcca9e': 'Nordic UART RX (notify)',
+  };
+
+  // Common short (16-bit) service UUIDs seen on cheap OEM BLE MCUs used by
+  // diffuser/humidifier/LED vendors, in addition to the SIG-standard ones.
+  const DEFAULT_OPTIONAL_SERVICES = [
+    'generic_access', 'generic_attribute', 'device_information', 'battery_service',
+    'environmental_sensing', 'current_time', 'immediate_alert', 'link_loss', 'tx_power',
+    0xffe0, 0xffe5, 0xfff0, 0xffd0, 0xffd5, 0xfee7, 0xfee9, 0xae00,
+    '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+  ];
+
+  function parseExtraServices(raw) {
+    return raw.split(',').map(s => s.trim()).filter(Boolean).map(s => {
+      // short hex like "ffe0" -> numeric so Web Bluetooth expands it correctly
+      if (/^[0-9a-fA-F]{4}$/.test(s)) return parseInt(s, 16);
+      return s.toLowerCase();
+    });
+  }
+
+  function nameFor(uuid) {
+    return KNOWN_NAMES[uuid.toLowerCase()] || '';
+  }
+
+  // ---- hex helpers ----
+  function bytesToHex(bytes) {
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
+  }
+  function bytesToAscii(bytes) {
+    return Array.from(bytes).map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.').join('');
+  }
+  function hexToBytes(hex) {
+    const clean = hex.replace(/[^0-9a-fA-F]/g, '');
+    if (clean.length % 2 !== 0) throw new Error('odd number of hex digits');
+    const out = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i * 2, 2), 16);
+    return out;
+  }
+  function dataViewToBytes(dv) {
+    return new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength);
+  }
+
+  // ---- log ----
+  function log(kind, msg) {
+    const ts = new Date().toISOString().split('T')[1].replace('Z', '');
+    const entry = document.createElement('div');
+    entry.className = 'entry ' + kind;
+    entry.innerHTML = `<span class="ts">[${ts}]</span> ${msg}`;
+    logEl.appendChild(entry);
+    logEl.scrollTop = logEl.scrollHeight;
+    logHistory.push({ ts, kind, msg: msg.replace(/<[^>]+>/g, '') });
+  }
+  let logHistory = [];
+
+  $('clearLogBtn').addEventListener('click', () => { logEl.innerHTML = ''; logHistory = []; });
+  $('copyLogBtn').addEventListener('click', async () => {
+    const text = logHistory.map(e => `[${e.ts}] ${e.msg}`).join('\n');
+    try { await navigator.clipboard.writeText(text); log('info', 'log copied to clipboard'); }
+    catch (e) { log('err', 'copy failed: ' + e.message); }
+  });
+  $('exportLogBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(logHistory, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `scent-ble-log-${Date.now()}.json`;
+    a.click();
+  });
+
+  // ---- status ----
+  function setStatus(state) {
+    statusPill.className = 'status-pill ' + state;
+    statusPill.textContent = state;
+  }
+
+  // ---- connection flow ----
+  scanBtn.addEventListener('click', async () => {
+    if (!navigator.bluetooth) {
+      log('err', 'navigator.bluetooth is unavailable. Use Bluefy on iOS or Chrome on desktop/Android, and make sure this page is served over HTTPS.');
+      return;
+    }
+    try {
+      const optionalServices = DEFAULT_OPTIONAL_SERVICES.concat(parseExtraServices(extraServicesInput.value));
+      log('info', 'requesting device...');
+      device = await navigator.bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices,
+      });
+      log('info', `picked device: ${device.name || '(unnamed)'} [${device.id}]`);
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      await connectAndDiscover();
+    } catch (e) {
+      log('err', 'scan/connect failed: ' + e.message);
+      setStatus('disconnected');
+    }
+  });
+
+  disconnectBtn.addEventListener('click', () => {
+    if (device && device.gatt.connected) device.gatt.disconnect();
+  });
+
+  rediscoverBtn.addEventListener('click', () => {
+    if (server) renderServices();
+  });
+
+  function onDisconnected() {
+    log('info', 'device disconnected');
+    setStatus('disconnected');
+    scanBtn.disabled = false;
+    disconnectBtn.disabled = true;
+    rediscoverBtn.disabled = true;
+    notifyHandlers.clear();
+  }
+
+  async function connectAndDiscover() {
+    setStatus('connecting');
+    scanBtn.disabled = true;
+    server = await device.gatt.connect();
+    log('info', 'GATT connected');
+    setStatus('connected');
+    disconnectBtn.disabled = false;
+    rediscoverBtn.disabled = false;
+    deviceInfo.textContent = `Connected to ${device.name || '(unnamed)'} — ${device.id}`;
+    await renderServices();
+  }
+
+  async function renderServices() {
+    servicesEl.innerHTML = '<div class="empty">Discovering services...</div>';
+    try {
+      const services = await server.getPrimaryServices();
+      servicesEl.innerHTML = '';
+      if (!services.length) {
+        servicesEl.innerHTML = '<div class="empty">No services discovered. Try adding the device\'s service UUID to "extra optional service UUIDs" above and reconnect.</div>';
+        return;
+      }
+      for (const service of services) {
+        servicesEl.appendChild(await renderService(service));
+      }
+    } catch (e) {
+      log('err', 'service discovery failed: ' + e.message);
+      servicesEl.innerHTML = `<div class="empty">Discovery failed: ${e.message}</div>`;
+    }
+  }
+
+  async function renderService(service) {
+    const wrap = document.createElement('div');
+    wrap.className = 'service';
+
+    const head = document.createElement('div');
+    head.className = 'service-head';
+    const name = nameFor(service.uuid);
+    head.innerHTML = `
+      <div>
+        <div class="uuid">${service.uuid}</div>
+        ${name ? `<div class="name">${name}</div>` : ''}
+      </div>
+      <span class="chevron">&#9656;</span>`;
+    head.addEventListener('click', () => wrap.classList.toggle('open'));
+    wrap.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'service-body';
+    body.innerHTML = '<div class="empty">Loading characteristics...</div>';
+    wrap.appendChild(body);
+
+    try {
+      const chars = await service.getCharacteristics();
+      body.innerHTML = '';
+      if (!chars.length) {
+        body.innerHTML = '<div class="empty">No characteristics.</div>';
+      } else {
+        for (const ch of chars) body.appendChild(renderCharacteristic(ch));
+      }
+    } catch (e) {
+      body.innerHTML = `<div class="empty">Failed to read characteristics: ${e.message}</div>`;
+    }
+
+    return wrap;
+  }
+
+  function renderCharacteristic(ch) {
+    const el = document.createElement('div');
+    el.className = 'char';
+    const props = ch.properties;
+    const name = nameFor(ch.uuid);
+
+    const badgeList = [
+      ['read', props.read], ['write', props.write],
+      ['writeNoResp', props.writeWithoutResponse],
+      ['notify', props.notify], ['indicate', props.indicate],
+    ].filter(([, on]) => on).map(([label]) => `<span class="badge on">${label}</span>`).join('');
+
+    el.innerHTML = `
+      <div class="uuid">${ch.uuid}</div>
+      ${name ? `<div class="name" style="color:var(--accent);font-size:0.72rem;">${name}</div>` : ''}
+      <div class="badges">${badgeList || '<span class="badge">no properties</span>'}</div>
+      <div class="value-box" data-role="value">no value read yet</div>
+      <div class="controls" data-role="controls"></div>
+    `;
+
+    const valueBox = el.querySelector('[data-role="value"]');
+    const controls = el.querySelector('[data-role="controls"]');
+
+    function showValue(bytes, source) {
+      const hex = bytesToHex(bytes);
+      const ascii = bytesToAscii(bytes);
+      valueBox.innerHTML = `hex: ${hex || '(empty)'}<br><span class="ascii">ascii: ${ascii || '(empty)'}</span>`;
+      const label = `${ch.uuid.slice(0, 8)}… ${source}: <b>${hex}</b> (ascii: "${ascii}")`;
+      log(source === 'notify' ? 'notify' : 'info', label);
+    }
+
+    if (props.read) {
+      const btn = document.createElement('button');
+      btn.className = 'btn small';
+      btn.textContent = 'Read';
+      btn.addEventListener('click', async () => {
+        try {
+          const dv = await ch.readValue();
+          showValue(dataViewToBytes(dv), 'read');
+        } catch (e) {
+          log('err', `read ${ch.uuid} failed: ${e.message}`);
+        }
+      });
+      controls.appendChild(btn);
+    }
+
+    if (props.notify || props.indicate) {
+      const btn = document.createElement('button');
+      btn.className = 'btn small';
+      btn.textContent = 'Subscribe';
+      let subscribed = false;
+      const handler = (event) => {
+        showValue(dataViewToBytes(event.target.value), 'notify');
+      };
+      btn.addEventListener('click', async () => {
+        try {
+          if (!subscribed) {
+            await ch.startNotifications();
+            ch.addEventListener('characteristicvaluechanged', handler);
+            subscribed = true;
+            btn.textContent = 'Unsubscribe';
+            btn.classList.add('primary');
+            log('info', `subscribed to ${ch.uuid}`);
+          } else {
+            await ch.stopNotifications();
+            ch.removeEventListener('characteristicvaluechanged', handler);
+            subscribed = false;
+            btn.textContent = 'Subscribe';
+            btn.classList.remove('primary');
+            log('info', `unsubscribed from ${ch.uuid}`);
+          }
+        } catch (e) {
+          log('err', `subscribe ${ch.uuid} failed: ${e.message}`);
+        }
+      });
+      controls.appendChild(btn);
+    }
+
+    if (props.write || props.writeWithoutResponse) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'hex bytes, e.g. 01 FF 02';
+      controls.appendChild(input);
+
+      if (props.write) {
+        const btn = document.createElement('button');
+        btn.className = 'btn small primary';
+        btn.textContent = 'Write';
+        btn.addEventListener('click', async () => {
+          try {
+            const bytes = hexToBytes(input.value);
+            await ch.writeValueWithResponse(bytes);
+            log('write', `wrote to ${ch.uuid}: <b>${bytesToHex(bytes)}</b>`);
+          } catch (e) {
+            log('err', `write ${ch.uuid} failed: ${e.message}`);
+          }
+        });
+        controls.appendChild(btn);
+      }
+
+      if (props.writeWithoutResponse) {
+        const btn = document.createElement('button');
+        btn.className = 'btn small';
+        btn.textContent = 'Write (no resp.)';
+        btn.addEventListener('click', async () => {
+          try {
+            const bytes = hexToBytes(input.value);
+            await ch.writeValueWithoutResponse(bytes);
+            log('write', `wrote (no-resp) to ${ch.uuid}: <b>${bytesToHex(bytes)}</b>`);
+          } catch (e) {
+            log('err', `write ${ch.uuid} failed: ${e.message}`);
+          }
+        });
+        controls.appendChild(btn);
+      }
+    }
+
+    return el;
+  }
+})();
+</script>
+
+</body>
+</html>
