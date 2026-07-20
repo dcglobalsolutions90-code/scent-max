@@ -1,0 +1,8 @@
+[project]
+name = "cynthia"
+version = "0.1.0"
+description = "Cynthia AI agent architecture: reusable multi-agent type templates"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["cynthia*"]
