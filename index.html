@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Scent Explorer</title>
+<style>
+  :root {
+    --bg: #0f1210;
+    --panel: #171b18;
+    --line: #2a2f2b;
+    --text: #e7ede8;
+    --dim: #8ba191;
+    --accent: #5ee6a8;
+    --accent-dim: #2f5c48;
+    --warn: #e6b45e;
+    --mono: 'SF Mono', 'Menlo', monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    padding-bottom: 40px;
+  }
+  header {
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 5;
+  }
+  header h1 {
+    font-size: 15px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 2px;
+    color: var(--dim);
+    font-weight: 600;
+  }
+  header .status {
+    font-size: 20px;
+    font-weight: 600;
+  }
+  .status.ready { color: var(--accent); }
+  .status.off { color: var(--warn); }
+  main { padding: 14px 16px; max-width: 640px; margin: 0 auto; }
+  .support-warning {
+    background: #2b1f14;
+    border: 1px solid #5c3d1c;
+    color: var(--warn);
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    margin-bottom: 16px;
+    display: none;
+  }
+  button {
+    background: var(--accent);
+    color: #06140d;
+    border: none;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text);
+  }
+  button.small {
+    padding: 7px 12px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+  button:disabled { opacity: 0.4; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .device-panel {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+  .device-name { font-size: 17px; font-weight: 600; }
+  .device-meta { font-size: 12px; color: var(--dim); font-family: var(--mono); margin-top: 2px; }
+  .service {
+    margin-top: 18px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+  .service-uuid {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+    letter-spacing: 0.02em;
+    margin-bottom: 8px;
+  }
+  .char-card {
+    background: #10130f;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+  .char-uuid {
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-all;
+  }
+  .char-props {
+    font-size: 11px;
+    color: var(--accent);
+    margin-top: 3px;
+    letter-spacing: 0.03em;
+  }
+  .char-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--warn);
+    margin-top: 8px;
+    word-break: break-all;
+  }
+  .char-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .write-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  input[type=text] {
+    flex: 1;
+    background: #0b0d0a;
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 14px;
+  }
+  #log {
+    margin-top: 20px;
+    background: #0b0d0a;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    height: 160px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+  }
+  #log div { margin-bottom: 3px; }
+  .empty-hint {
+    color: var(--dim);
+    font-size: 13px;
+    line-height: 1.6;
+    margin-top: 10px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Scent Explorer</h1>
+  <div id="statusLine" class="status off">Not connected</div>
+</header>
+
+<main>
+  <div id="supportWarning" class="support-warning">
+    This browser doesn't support Web Bluetooth. On iPhone, open this page inside the
+    <strong>Bluefy</strong> app (free on the App Store) — Safari itself can't do Bluetooth.
+  </div>
+
+  <div class="row">
+    <button id="connectBtn">Connect to device</button>
+  </div>
+  <p class="empty-hint">Tap Connect, then pick your diffuser from the system pairing sheet.</p>
+
+  <div id="devicePanel" style="display:none" class="device-panel">
+    <div class="device-name" id="deviceName">—</div>
+    <div class="device-meta" id="deviceId">—</div>
+    <div class="row" style="margin-top:12px">
+      <button class="secondary small" id="disconnectBtn">Disconnect</button>
+    </div>
+    <div id="servicesContainer"></div>
+  </div>
+
+  <div id="log"></div>
+</main>
+
+<script>
+const logEl = document.getElementById('log');
+function log(msg) {
+  const line = document.createElement('div');
+  const t = new Date().toLocaleTimeString();
+  line.textContent = `[${t}] ${msg}`;
+  logEl.prepend(line);
+}
+
+function hexFromBuffer(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length === 0) return '-';
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+}
+
+function bufferFromHex(hexString) {
+  const cleaned = hexString.replace(/0x/gi, '').replace(/\s+/g, '');
+  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(cleaned.length / 2);
+  for (let i = 0; i < cleaned.length; i += 2) {
+    const byte = parseInt(cleaned.substr(i, 2), 16);
+    if (Number.isNaN(byte)) return null;
+    bytes[i / 2] = byte;
+  }
+  return bytes.buffer;
+}
+
+function propsSummary(props) {
+  const parts = [];
+  if (props.read) parts.push('Read');
+  if (props.write) parts.push('Write');
+  if (props.writeWithoutResponse) parts.push('WriteNoResp');
+  if (props.notify) parts.push('Notify');
+  if (props.indicate) parts.push('Indicate');
+  return parts.join(', ') || 'none';
+}
+
+let currentDevice = null;
+let currentServer = null;
+
+const statusLine = document.getElementById('statusLine');
+const devicePanel = document.getElementById('devicePanel');
+const deviceName = document.getElementById('deviceName');
+const deviceId = document.getElementById('deviceId');
+const servicesContainer = document.getElementById('servicesContainer');
+const connectBtn = document.getElementById('connectBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
+
+if (!navigator.bluetooth) {
+  document.getElementById('supportWarning').style.display = 'block';
+  connectBtn.disabled = true;
+}
+
+connectBtn.addEventListener('click', async () => {
+  try {
+    log('Opening device picker...');
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: []
+    });
+    currentDevice = device;
+    log(`Selected: ${device.name || '(unnamed device)'}`);
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+
+    statusLine.textContent = 'Connecting...';
+    statusLine.className = 'status off';
+
+    const server = await device.gatt.connect();
+    currentServer = server;
+
+    deviceName.textContent = device.name || 'Unnamed device';
+    deviceId.textContent = device.id;
+    devicePanel.style.display = 'block';
+    statusLine.textContent = 'Connected';
+    statusLine.className = 'status ready';
+    log('Connected. Discovering services...');
+
+    await discoverEverything(server);
+  } catch (err) {
+    log(`Error: ${err.message}`);
+    statusLine.textContent = 'Not connected';
+    statusLine.className = 'status off';
+  }
+});
+
+disconnectBtn.addEventListener('click', () => {
+  if (currentDevice && currentDevice.gatt.connected) {
+    currentDevice.gatt.disconnect();
+  }
+});
+
+function onDisconnected() {
+  log('Disconnected.');
+  statusLine.textContent = 'Not connected';
+  statusLine.className = 'status off';
+  devicePanel.style.display = 'none';
+  servicesContainer.innerHTML = '';
+}
+
+async function discoverEverything(server) {
+  servicesContainer.innerHTML = '';
+  let services;
+  try {
+    services = await server.getPrimaryServices();
+  } catch (err) {
+    log(`Service discovery failed: ${err.message}`);
+    return;
+  }
+  log(`Found ${services.length} service(s).`);
+
+  for (const service of services) {
+    const serviceEl = document.createElement('div');
+    serviceEl.className = 'service';
+    serviceEl.innerHTML = `<div class="service-uuid">SERVICE ${service.uuid}</div>`;
+    servicesContainer.appendChild(serviceEl);
+
+    let characteristics;
+    try {
+      characteristics = await service.getCharacteristics();
+    } catch (err) {
+      log(`Characteristic discovery failed for ${service.uuid}: ${err.message}`);
+      continue;
+    }
+    log(`Service ${service.uuid}: ${characteristics.length} characteristic(s).`);
+
+    for (const char of characteristics) {
+      serviceEl.appendChild(buildCharCard(char));
+    }
+  }
+}
+
+function buildCharCard(char) {
+  const card = document.createElement('div');
+  card.className = 'char-card';
+
+  const uuidEl = document.createElement('div');
+  uuidEl.className = 'char-uuid';
+  uuidEl.textContent = char.uuid;
+  card.appendChild(uuidEl);
+
+  const propsEl = document.createElement('div');
+  propsEl.className = 'char-props';
+  propsEl.textContent = propsSummary(char.properties);
+  card.appendChild(propsEl);
+
+  const valueEl = document.createElement('div');
+  valueEl.className = 'char-value';
+  valueEl.textContent = 'Last value: -';
+  card.appendChild(valueEl);
+
+  const actions = document.createElement('div');
+  actions.className = 'char-actions';
+
+  if (char.properties.read) {
+    const readBtn = document.createElement('button');
+    readBtn.className = 'small secondary';
+    readBtn.textContent = 'Read';
+    readBtn.onclick = async () => {
+      try {
+        const value = await char.readValue();
+        const hex = hexFromBuffer(value.buffer);
+        valueEl.textContent = `Last value: ${hex}`;
+        log(`Read ${char.uuid}: ${hex}`);
+      } catch (err) {
+        log(`Read failed on ${char.uuid}: ${err.message}`);
+      }
+    };
+    actions.appendChild(readBtn);
+  }
+
+  if (char.properties.notify || char.properties.indicate) {
+    const subBtn = document.createElement('button');
+    subBtn.className = 'small secondary';
+    subBtn.textContent = 'Subscribe';
+    subBtn.onclick = async () => {
+      try {
+        await char.startNotifications();
+        char.addEventListener('characteristicvaluechanged', (e) => {
+          const hex = hexFromBuffer(e.target.value.buffer);
+          valueEl.textContent = `Last value: ${hex}`;
+          log(`Notify ${char.uuid}: ${hex}`);
+        });
+        log(`Subscribed to ${char.uuid}`);
+      } catch (err) {
+        log(`Subscribe failed on ${char.uuid}: ${err.message}`);
+      }
+    };
+    actions.appendChild(subBtn);
+  }
+
+  card.appendChild(actions);
+
+  if (char.properties.write || char.properties.writeWithoutResponse) {
+    const writeRow = document.createElement('div');
+    writeRow.className = 'write-row';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Hex bytes e.g. 01 FF A0';
+    writeRow.appendChild(input);
+
+    const sendBtn = document.createElement('button');
+    sendBtn.className = 'small';
+    sendBtn.textContent = 'Send';
+    sendBtn.onclick = async () => {
+      const buffer = bufferFromHex(input.value);
+      if (!buffer) {
+        log(`Invalid hex: "${input.value}"`);
+        return;
+      }
+      try {
+        if (char.properties.write) {
+          await char.writeValueWithResponse(buffer);
+        } else {
+          await char.writeValueWithoutResponse(buffer);
+        }
+        log(`Wrote ${input.value.trim()} to ${char.uuid}`);
+      } catch (err) {
+        log(`Write failed on ${char.uuid}: ${err.message}`);
+      }
+    };
+    writeRow.appendChild(sendBtn);
+    card.appendChild(writeRow);
+  }
+
+  return card;
+}
+</script>
+</body>
+</html>
