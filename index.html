@@ -276,12 +276,51 @@ connectBtn.addEventListener('click', async () => {
     log('Connected. Discovering services...');
 
     await discoverEverything(server);
+    await tryAuthHandshake(server);
   } catch (err) {
     log(`Error: ${err.message}`);
     statusLine.textContent = 'Not connected';
     statusLine.className = 'status off';
   }
 });
+
+// ScentLife's App Store changelog mentions "password for Bluetooth
+// connection: 6666" (added in v1.1.12). Many cheap BLE diffuser/humidifier
+// modules expect a short auth code written to a characteristic right after
+// connecting, and will silently disconnect if it never arrives. This tries
+// the most likely encodings of "6666" against every writable characteristic
+// as soon as we connect, to beat that disconnect timeout.
+async function tryAuthHandshake(server) {
+  const candidates = [
+    { label: 'ASCII "6666"', bytes: new TextEncoder().encode('6666') },
+    { label: 'bytes 0x06 0x06 0x06 0x06', bytes: new Uint8Array([6, 6, 6, 6]) },
+    { label: 'bytes 0x36 0x36 0x36 0x36 (hex ASCII digits)', bytes: new Uint8Array([0x36, 0x36, 0x36, 0x36]) },
+    { label: 'single byte 0x6666 as uint16 LE', bytes: new Uint8Array([0x02, 0x1A]) },
+  ];
+
+  let sentAny = false;
+  for (const service of server.__lastServices || []) {
+    for (const char of service.__lastChars || []) {
+      if (!(char.properties.write || char.properties.writeWithoutResponse)) continue;
+      for (const candidate of candidates) {
+        try {
+          if (char.properties.write) {
+            await char.writeValueWithResponse(candidate.bytes);
+          } else {
+            await char.writeValueWithoutResponse(candidate.bytes);
+          }
+          log(`Auth attempt: sent ${candidate.label} to ${char.uuid} (service ${service.uuid})`);
+          sentAny = true;
+        } catch (err) {
+          log(`Auth attempt failed (${candidate.label} -> ${char.uuid}): ${err.message}`);
+        }
+      }
+    }
+  }
+  if (!sentAny) {
+    log('No writable characteristics found yet to try the auth handshake on.');
+  }
+}
 
 disconnectBtn.addEventListener('click', () => {
   if (currentDevice && currentDevice.gatt.connected) {
@@ -299,6 +338,7 @@ function onDisconnected() {
 
 async function discoverEverything(server) {
   servicesContainer.innerHTML = '';
+  server.__lastServices = [];
   let services;
   try {
     services = await server.getPrimaryServices();
@@ -322,6 +362,8 @@ async function discoverEverything(server) {
       continue;
     }
     log(`Service ${service.uuid}: ${characteristics.length} characteristic(s).`);
+    service.__lastChars = characteristics;
+    server.__lastServices.push(service);
 
     for (const char of characteristics) {
       serviceEl.appendChild(buildCharCard(char));
