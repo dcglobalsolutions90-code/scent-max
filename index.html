@@ -276,6 +276,7 @@ connectBtn.addEventListener('click', async () => {
     log('Connected. Discovering services...');
 
     await discoverEverything(server);
+    await tryReadAll(server);
     await tryAuthHandshake(server);
   } catch (err) {
     log(`Error: ${err.message}`);
@@ -283,6 +284,21 @@ connectBtn.addEventListener('click', async () => {
     statusLine.className = 'status off';
   }
 });
+
+async function tryReadAll(server) {
+  for (const service of server.__lastServices || []) {
+    for (const char of service.__lastChars || []) {
+      if (!char.properties.read) continue;
+      try {
+        const value = await char.readValue();
+        log(`Initial read ${char.uuid}: ${hexFromBuffer(value.buffer)}`);
+      } catch (err) {
+        const detail = `${err.name || 'UnknownError'}: ${err.message || '(no message)'}`;
+        log(`Initial read failed on ${char.uuid}: ${detail}`);
+      }
+    }
+  }
+}
 
 // ScentLife's App Store changelog mentions "password for Bluetooth
 // connection: 6666" (added in v1.1.12). Many cheap BLE diffuser/humidifier
@@ -312,7 +328,8 @@ async function tryAuthHandshake(server) {
           log(`Auth attempt: sent ${candidate.label} to ${char.uuid} (service ${service.uuid})`);
           sentAny = true;
         } catch (err) {
-          log(`Auth attempt failed (${candidate.label} -> ${char.uuid}): ${err.message}`);
+          const detail = `${err.name || 'UnknownError'}${err.code ? ' code=' + err.code : ''}: ${err.message || '(no message)'}`;
+          log(`Auth attempt failed (${candidate.label} -> ${char.uuid}): ${detail}`);
         }
       }
     }
@@ -404,7 +421,8 @@ function buildCharCard(char) {
         valueEl.textContent = `Last value: ${hex}`;
         log(`Read ${char.uuid}: ${hex}`);
       } catch (err) {
-        log(`Read failed on ${char.uuid}: ${err.message}`);
+        const detail = `${err.name || 'UnknownError'}: ${err.message || '(no message)'}`;
+        log(`Read failed on ${char.uuid}: ${detail}`);
       }
     };
     actions.appendChild(readBtn);
@@ -424,7 +442,8 @@ function buildCharCard(char) {
         });
         log(`Subscribed to ${char.uuid}`);
       } catch (err) {
-        log(`Subscribe failed on ${char.uuid}: ${err.message}`);
+        const detail = `${err.name || 'UnknownError'}: ${err.message || '(no message)'}`;
+        log(`Subscribe failed on ${char.uuid}: ${detail}`);
       }
     };
     actions.appendChild(subBtn);
