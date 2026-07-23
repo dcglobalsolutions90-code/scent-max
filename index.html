@@ -276,8 +276,7 @@ connectBtn.addEventListener('click', async () => {
     log('Connected. Discovering services...');
 
     await discoverEverything(server);
-    await tryReadAll(server);
-    await tryAuthHandshake(server);
+    await Promise.allSettled([tryReadAll(server), tryAuthHandshake(server)]);
   } catch (err) {
     log(`Error: ${err.message}`);
     statusLine.textContent = 'Not connected';
@@ -300,43 +299,47 @@ async function tryReadAll(server) {
   }
 }
 
-// ScentLife's App Store changelog mentions "password for Bluetooth
-// connection: 6666" (added in v1.1.12). Many cheap BLE diffuser/humidifier
-// modules expect a short auth code written to a characteristic right after
-// connecting, and will silently disconnect if it never arrives. This tries
-// the most likely encodings of "6666" against every writable characteristic
-// as soon as we connect, to beat that disconnect timeout.
 async function tryAuthHandshake(server) {
   const candidates = [
     { label: 'ASCII "6666"', bytes: new TextEncoder().encode('6666') },
     { label: 'bytes 0x06 0x06 0x06 0x06', bytes: new Uint8Array([6, 6, 6, 6]) },
     { label: 'bytes 0x36 0x36 0x36 0x36 (hex ASCII digits)', bytes: new Uint8Array([0x36, 0x36, 0x36, 0x36]) },
     { label: 'single byte 0x6666 as uint16 LE', bytes: new Uint8Array([0x02, 0x1A]) },
+    { label: 'ASCII "AT+PASS=6666"', bytes: new TextEncoder().encode('AT+PASS=6666') },
+    { label: 'framed [AA 04 36 36 36 36 55]', bytes: new Uint8Array([0xAA, 0x04, 0x36, 0x36, 0x36, 0x36, 0x55]) },
+    { label: 'framed [AA 04 06 06 06 06 55]', bytes: new Uint8Array([0xAA, 0x04, 6, 6, 6, 6, 0x55]) },
   ];
 
-  let sentAny = false;
+  const jobs = [];
   for (const service of server.__lastServices || []) {
     for (const char of service.__lastChars || []) {
       if (!(char.properties.write || char.properties.writeWithoutResponse)) continue;
       for (const candidate of candidates) {
-        try {
-          if (char.properties.write) {
-            await char.writeValueWithResponse(candidate.bytes);
-          } else {
-            await char.writeValueWithoutResponse(candidate.bytes);
+        const job = (async () => {
+          try {
+            if (char.properties.writeWithoutResponse) {
+              await char.writeValueWithoutResponse(candidate.bytes);
+            } else {
+              await char.writeValueWithResponse(candidate.bytes);
+            }
+            log(`OK: sent ${candidate.label} to ${char.uuid} (service ${service.uuid})`);
+          } catch (err) {
+            const detail = `${err.name || 'UnknownError'}${err.code ? ' code=' + err.code : ''}: ${err.message || '(no message)'}`;
+            log(`Failed (${candidate.label} -> ${char.uuid}): ${detail}`);
           }
-          log(`Auth attempt: sent ${candidate.label} to ${char.uuid} (service ${service.uuid})`);
-          sentAny = true;
-        } catch (err) {
-          const detail = `${err.name || 'UnknownError'}${err.code ? ' code=' + err.code : ''}: ${err.message || '(no message)'}`;
-          log(`Auth attempt failed (${candidate.label} -> ${char.uuid}): ${detail}`);
-        }
+        })();
+        jobs.push(job);
       }
     }
   }
-  if (!sentAny) {
+
+  if (jobs.length === 0) {
     log('No writable characteristics found yet to try the auth handshake on.');
+    return;
   }
+  log(`Blasting ${jobs.length} auth guesses in parallel across all writable characteristics...`);
+  await Promise.allSettled(jobs);
+  log('Auth blast complete.');
 }
 
 disconnectBtn.addEventListener('click', () => {
