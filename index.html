@@ -143,7 +143,9 @@
     blocks that at the OS level for any web page). This only shows which IP
     addresses on your subnet appear to respond, using a crude image-load
     timing trick, since browsers can't do a real ping or ARP sweep. Expect
-    some devices to be missed.
+    some devices to be missed. Tapping a result opens that device's own web
+    page in a new tab if it has one (routers, smart plugs, printers often
+    do) — phones and laptops usually won't show anything.
   </div>
 
   <div class="subnet-row">
@@ -237,7 +239,18 @@ function probeHost(ip, timeoutMs) {
 function renderHost(host) {
   const card = document.createElement('div');
   card.className = 'host-card';
-  card.innerHTML = `<span class="host-ip">${host.ip}</span><span class="host-ms">${host.ms} ms</span>`;
+  card.innerHTML = `
+    <span class="host-ip">${host.ip}</span>
+    <span class="row" style="gap: 8px;">
+      <span class="host-ms">${host.ms} ms</span>
+      <span style="color: var(--dim); font-size: 14px;">›</span>
+    </span>
+  `;
+  card.style.cursor = 'pointer';
+  card.title = 'Tap to open this device\'s web page, if it has one';
+  card.addEventListener('click', () => {
+    window.open(`http://${host.ip}/`, '_blank');
+  });
   results.appendChild(card);
 }
 
