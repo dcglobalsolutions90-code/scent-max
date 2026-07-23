@@ -276,13 +276,31 @@ connectBtn.addEventListener('click', async () => {
     log('Connected. Discovering services...');
 
     await discoverEverything(server);
-    await Promise.allSettled([tryReadAll(server), tryAuthHandshake(server)]);
+    await Promise.allSettled([trySubscribeAll(server), tryReadAll(server), tryAuthHandshake(server)]);
   } catch (err) {
     log(`Error: ${err.message}`);
     statusLine.textContent = 'Not connected';
     statusLine.className = 'status off';
   }
 });
+
+async function trySubscribeAll(server) {
+  for (const service of server.__lastServices || []) {
+    for (const char of service.__lastChars || []) {
+      if (!(char.properties.notify || char.properties.indicate)) continue;
+      try {
+        await char.startNotifications();
+        char.addEventListener('characteristicvaluechanged', (e) => {
+          log(`Notify ${char.uuid}: ${hexFromBuffer(e.target.value.buffer)}`);
+        });
+        log(`Subscribed to ${char.uuid} (service ${service.uuid})`);
+      } catch (err) {
+        const detail = `${err.name || 'UnknownError'}: ${err.message || '(no message)'}`;
+        log(`Subscribe failed on ${char.uuid}: ${detail}`);
+      }
+    }
+  }
+}
 
 async function tryReadAll(server) {
   for (const service of server.__lastServices || []) {
