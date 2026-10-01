@@ -1,0 +1,10 @@
+{
+  "name": "Nav3D GPS Navigation",
+  "short_name": "Nav3D",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07111a",
+  "theme_color": "#07111a",
+  "description": "Phone-first 3D GPS navigation prototype."
+}
