@@ -136,7 +136,7 @@ main{max-width:900px;margin:auto;padding:12px}.card{background:linear-gradient(1
 <script>
 const KBASES=['https://external-api.kalshi.com/trade-api/v2','https://api.elections.kalshi.com/trade-api/v2'];
 const params=new URLSearchParams(location.search);
-const RELAY=(params.get('relay')||localStorage.getItem('kalshiRelay')||(location.hostname.endsWith('.vercel.app')?'/api/kalshi':'')).replace(/\/$/,'');
+const RELAY=(params.get('relay')||localStorage.getItem('kalshiRelay')||'https://nightlink-omega.vercel.app/api/kalshi').replace(/\/$/,'');
 const SERIES='KXBTC15M', STORE='kalshi-btc15-paper-v2';
 const cfg={startingCash:10000,maxRisk:150,maxContracts:250,minEdge:.055,profitCents:4,stopCents:6,maxEntryPrice:.88,minEntryPrice:.12};
 let state={cash:10000,position:null,trades:[],startEquity:10000,auto:true,currentTicker:null};
