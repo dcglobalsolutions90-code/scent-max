@@ -1,0 +1,23 @@
+name: DriveOS CarPlay CI
+
+on:
+  push:
+    paths:
+      - "driveos-carplay/**"
+      - ".github/workflows/driveos-carplay-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: driveos-carplay
+        run: xcodegen generate
+      - name: Build for iOS Simulator
+        working-directory: driveos-carplay
+        run: |
+          xcodebuild             -project DriveOS.xcodeproj             -scheme DriveOS             -sdk iphonesimulator             -configuration Debug             CODE_SIGNING_ALLOWED=NO             build
