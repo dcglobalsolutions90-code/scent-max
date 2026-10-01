@@ -1,0 +1,26 @@
+name: DriveOS
+options:
+  bundleIdPrefix: com.dcglobalsolutions
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    SWIFT_VERSION: "5.0"
+targets:
+  DriveOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - DriveOS
+    info:
+      path: DriveOS/Info.plist
+    entitlements:
+      path: DriveOS/DriveOS.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dcglobalsolutions.driveos
+        PRODUCT_NAME: DriveOS
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: DriveOS/Info.plist
+        CODE_SIGN_ENTITLEMENTS: DriveOS/DriveOS.entitlements
