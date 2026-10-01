@@ -43,11 +43,11 @@ label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transf
 <main>
 <section id="dashboard" class="page active">
   <div class="card hero">
-    <div class="pair">WORLD LIBERTY FINANCIAL · WLFI / USDT · SPOT PAPER TRADING</div>
+    <div class="pair">WORLD LIBERTY FINANCIAL · WLFI / USDT · MICRO-WIN PAPER MODE</div>
     <div class="price" id="price">—</div>
     <div id="dayChange" class="change">—</div>
     <div class="signalRow">
-      <div class="signalBox"><span>Model decision</span><b id="signal">WAIT</b><div class="muted" id="signalWhy">Waiting for market data.</div></div>
+      <div class="signalBox"><span>Model decision</span><b id="signal">WAIT</b><div class="muted" id="signalWhy">Loading Micro-Win strategy…</div></div>
       <div class="confidence"><span>Model confidence</span><b id="confidence">—</b><div class="gauge"><div id="confidenceBar"></div></div></div>
     </div>
     <div class="stats">
@@ -58,7 +58,7 @@ label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transf
     </div>
   </div>
 
-  <div class="section"><h2>Live market</h2><span class="muted" id="timeframeLabel">5-minute model</span></div>
+  <div class="section"><h2>Live market</h2><span class="muted" id="timeframeLabel">3-minute Micro-Win model</span></div>
   <div id="chartWrap" class="card">
     <div class="chartTop"><div class="chartLegend"><span class="key"><i class="sw"></i> WLFI</span><span class="key"><i class="sw" style="background:#ffd166"></i> EMA 9</span><span class="key"><i class="sw" style="background:#ff9f43"></i> EMA 21</span></div><span class="muted" id="chartRange"></span></div>
     <canvas id="chart"></canvas>
@@ -87,9 +87,9 @@ label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transf
     </div>
 
     <div class="card engine">
-      <div class="positionTitle"><b>AI-style signal engine</b><span class="badge">6 FACTORS</span></div>
+      <div class="positionTitle"><b>AI-style signal engine</b><span class="badge">MICRO-WIN</span></div>
       <div class="engineScore" id="score">0</div>
-      <div class="muted">Score from −100 bearish to +100 bullish. Trades require multiple factors to agree.</div>
+      <div class="muted">Score from −100 bearish to +100 bullish. Micro-Win mode enters sooner, aims for smaller moves, and keeps fees in the simulation.</div>
       <div id="factors"></div>
     </div>
   </div>
@@ -118,7 +118,7 @@ label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transf
   <div class="section"><h2>How the bot works</h2></div>
   <div class="card notice">
     <strong>Paper trading only.</strong> This version cannot place a real order or access your exchange balance.<br><br>
-    The signal engine combines EMA trend, RSI, MACD, Bollinger position, momentum and volume. Position size is limited by your configured risk per trade and maximum account allocation. Stops use ATR volatility, and the profit target is based on a reward-to-risk multiple.<br><br>
+    The Micro-Win signal engine combines EMA trend, RSI, MACD, Bollinger position, momentum and volume. It defaults to 3-minute candles, a lower entry threshold, a 0.8% paper profit target and 0.4% paper stop. Position size is still limited by risk and maximum allocation, with fees included.<br><br>
     The bot evaluates completed candles rather than reacting to every price tick. That reduces false entries from short-term noise.<br><br>
     <strong>Important:</strong> this is a simulation and strategy-testing tool, not a promise of profit. Crypto can move quickly and model performance can change materially.
   </div>
@@ -140,10 +140,10 @@ label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transf
       <div><label>Timeframe</label><select id="setTf"><option value="1m">1 minute</option><option value="5m" selected>5 minutes</option><option value="15m">15 minutes</option><option value="1h">1 hour</option></select></div>
       <div><label>Risk per trade %</label><input id="setRisk" type="number" min=".1" max="5" step=".1"></div>
       <div><label>Max allocation %</label><input id="setAlloc" type="number" min="5" max="100" step="5"></div>
-      <div><label>Entry score</label><input id="setEntry" type="number" min="20" max="95" step="5"></div>
+      <div><label>Entry score</label><input id="setEntry" type="number" min="10" max="95" step="5"></div>
       <div><label>Exit score</label><input id="setExit" type="number" min="-95" max="20" step="5"></div>
-      <div><label>ATR stop multiple</label><input id="setAtr" type="number" min=".5" max="5" step=".1"></div>
-      <div><label>Reward / risk</label><input id="setRR" type="number" min=".5" max="5" step=".1"></div>
+      <div><label>Stop loss %</label><input id="setStop" type="number" min=".2" max="3" step=".1"></div>
+      <div><label>Profit target %</label><input id="setTarget" type="number" min=".3" max="5" step=".1"></div>
       <div><label>Paper fee %</label><input id="setFee" type="number" min="0" max="1" step=".01"></div>
       <div><label>Max daily loss %</label><input id="setDaily" type="number" min=".5" max="20" step=".5"></div>
     </div>
@@ -155,9 +155,9 @@ label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transf
 <script>
 const SYMBOL='WLFIUSDT';
 const BASES=['https://data-api.binance.vision','https://api.binance.com'];
-const STORE='wlfi-paper-bot-v1';
-const defaults={balance:10000,timeframe:'5m',riskPct:1,maxAllocPct:30,entryScore:55,exitScore:-25,atrMult:1.8,rewardRisk:2,feePct:.1,maxDailyLossPct:3};
-let cfg={...defaults}, account={cash:10000,position:null,trades:[],startEquity:10000,dayStartEquity:10000,dayKey:new Date().toISOString().slice(0,10),botOn:false,lastProcessedCandle:null};
+const STORE='wlfi-paper-bot-v2';
+const defaults={balance:10000,timeframe:'3m',riskPct:.6,maxAllocPct:30,entryScore:20,exitScore:-20,stopPct:.4,targetPct:.8,feePct:.1,maxDailyLossPct:3,cooldownBars:1};
+let cfg={...defaults}, account={cash:10000,position:null,trades:[],startEquity:10000,dayStartEquity:10000,dayKey:new Date().toISOString().slice(0,10),botOn:true,lastProcessedCandle:null,lastExitCandle:null};
 let candles=[],ticker=null,model=null,pollTimer=null,candleTimer=null,baseIndex=0;
 
 const $=id=>document.getElementById(id);
@@ -227,7 +227,7 @@ function signalModel(cs){
     {name:'Momentum',v:Math.round(momScore),max:15},
     {name:'Volume',v:Math.round(volScore),max:8}
   ];
-  let why=signal==='BUY'?'Bullish factors are aligned strongly enough for an entry.':signal==='SELL'?'Bearish factors favor reducing or exiting exposure.':'Signals are mixed; the model is staying patient.';
+  let why=signal==='BUY'?'Entry condition met: score '+score+' ≥ +'+cfg.entryScore+'.':signal==='SELL'?'Exit condition met: score '+score+' ≤ '+cfg.exitScore+'.':'No trade yet: score '+score+' needs +'+cfg.entryScore+' to buy. Rechecks each completed '+cfg.timeframe+' candle.';
   return {score,confidence,signal,factors,why,atr:atr(closed),ema9:e9,ema21:e21,rsi:R,macd,last};
 }
 function equity(price=currentPrice()){
@@ -242,7 +242,7 @@ function paperBuy(reason='Manual paper buy'){
   if(account.position||!model)return toast('A paper position is already open.');
   const price=currentPrice();if(!(price>0))return;
   if(dailyGuard())return toast('Daily loss limit reached. New entries are blocked.',4000);
-  const stopDist=Math.max(model.atr*cfg.atrMult,price*.008);
+  const stopDist=price*cfg.stopPct/100;
   const riskDollars=equity()*cfg.riskPct/100;
   const qtyRisk=riskDollars/stopDist;
   const qtyAlloc=equity()*cfg.maxAllocPct/100/price;
@@ -252,7 +252,7 @@ function paperBuy(reason='Manual paper buy'){
   if(qty<=0)return toast('Not enough paper cash.');
   const finalCost=qty*price,finalFee=finalCost*cfg.feePct/100;
   account.cash-=finalCost+finalFee;
-  account.position={qty,entry:price,stop:price-stopDist,target:price+stopDist*cfg.rewardRisk,initialStop:price-stopDist,opened:Date.now(),entryFee:finalFee,reason};
+  account.position={qty,entry:price,stop:price-stopDist,target:price*(1+cfg.targetPct/100),initialStop:price-stopDist,opened:Date.now(),entryFee:finalFee,reason};
   account.trades.unshift({type:'BUY',time:Date.now(),price,qty,pnl:null,reason});
   save();render();toast('Paper BUY: '+qty.toFixed(1)+' WLFI');
 }
@@ -262,13 +262,13 @@ function paperSell(reason='Manual paper sell'){
   account.cash+=proceeds;
   const pnl=(price-p.entry)*p.qty-p.entryFee-fee;
   account.trades.unshift({type:'SELL',time:Date.now(),price,qty:p.qty,pnl,reason});
-  account.position=null;save();render();toast('Paper position closed · '+money(pnl));
+  account.position=null;account.lastExitCandle=candles.length>1?candles[candles.length-2].t:Date.now();save();render();toast('Paper position closed · '+money(pnl));
 }
 function managePosition(){
   const p=account.position;if(!p)return;const price=currentPrice();
   const risk=p.entry-p.initialStop;
-  if(price>=p.entry+risk&&p.stop<p.entry)p.stop=p.entry;
-  if(price>=p.entry+risk*1.4)p.stop=Math.max(p.stop,price-risk*.75);
+  if(price>=p.entry*(1+0.0045)&&p.stop<p.entry)p.stop=p.entry*(1+cfg.feePct*2/100);
+  if(price>=p.entry*(1+0.0065))p.stop=Math.max(p.stop,price*(1-0.0025));
   if(price<=p.stop)return paperSell('Stop / trailing stop');
   if(price>=p.target)return paperSell('Take profit');
   if(model&&model.score<=cfg.exitScore)return paperSell('Model exit');
@@ -279,17 +279,20 @@ function processBot(){
   const closed=candles[candles.length-2];if(!closed)return;
   if(account.lastProcessedCandle===closed.t)return;
   account.lastProcessedCandle=closed.t;
-  if(!account.position&&model.score>=cfg.entryScore)paperBuy('Auto model entry');
-  else if(account.position&&model.score<=cfg.exitScore)paperSell('Auto model exit');
+  if(!account.position&&model.score>=cfg.entryScore){
+    const cooling=account.lastExitCandle && closed.t<=account.lastExitCandle+(cfg.cooldownBars||1)*timeframeMs(cfg.timeframe);
+    if(!cooling) paperBuy('Micro-Win auto entry');
+  } else if(account.position&&model.score<=cfg.exitScore) paperSell('Micro-Win model exit');
   save();
 }
+function timeframeMs(tf){return tf==='1m'?60000:tf==='3m'?180000:tf==='5m'?300000:tf==='15m'?900000:tf==='1h'?3600000:300000}
 function render(){
   const p=currentPrice(),eq=equity(p),pnl=eq-account.startEquity,wins=account.trades.filter(x=>x.type==='SELL'&&x.pnl>0).length,closes=account.trades.filter(x=>x.type==='SELL').length;
   $('price').textContent=px(p);
   if(ticker){const ch=Number(ticker.priceChangePercent);$('dayChange').textContent=pct(ch)+' today · High '+px(Number(ticker.highPrice))+' · Low '+px(Number(ticker.lowPrice));$('dayChange').className='change '+(ch>=0?'green':'red')}
   $('cash').textContent=money(account.cash);$('equity').textContent=money(eq);$('totalPnl').textContent=money(pnl);$('totalPnl').className=pnl>=0?'green':'red';$('winRate').textContent=closes?Math.round(wins/closes*100)+'%':'—';
   $('botState').textContent=account.botOn?'BOT RUNNING':'BOT OFF';$('botBtn').textContent=account.botOn?'Stop auto bot':'Start auto bot';$('botBtn').className='btn '+(account.botOn?'danger':'primary');
-  $('riskView').textContent=cfg.riskPct.toFixed(1)+'% · max '+cfg.maxAllocPct+'%';
+  $('riskView').textContent=cfg.riskPct.toFixed(1)+'% risk · '+cfg.stopPct.toFixed(1)+'% stop';
   if(account.position){
     const x=account.position,u=(p-x.entry)*x.qty;$('positionBadge').textContent='LONG';$('positionBadge').style.color='var(--green)';$('qty').textContent=x.qty.toFixed(1);$('entry').textContent=px(x.entry);$('stop').textContent=px(x.stop);$('target').textContent=px(x.target);$('unrealized').textContent=money(u);$('unrealized').className=u>=0?'green':'red';$('sellBtn').disabled=false;$('manualBtn').disabled=true;
   }else{$('positionBadge').textContent='FLAT';$('positionBadge').style.color='var(--cyan)';$('qty').textContent='0';$('entry').textContent='—';$('stop').textContent='—';$('target').textContent='—';$('unrealized').textContent='$0.00';$('unrealized').className='';$('sellBtn').disabled=true;$('manualBtn').disabled=false}
@@ -299,7 +302,7 @@ function renderModel(){
   if(!model)return;$('score').textContent=(model.score>0?'+':'')+model.score;$('signal').textContent=model.signal;$('signalWhy').textContent=model.why;$('confidence').textContent=model.confidence+'%';$('confidenceBar').style.width=model.confidence+'%';
   const col=model.signal==='BUY'?'var(--green)':model.signal==='SELL'?'var(--red)':'var(--yellow)';$('signal').style.color=col;$('confidenceBar').style.background=col;$('score').style.color=model.score>20?'var(--green)':model.score<-20?'var(--red)':'var(--yellow)';
   $('factors').innerHTML=model.factors.map(f=>{const w=Math.min(100,Math.abs(f.v)/f.max*100),c=f.v>=0?'var(--green)':'var(--red)';return '<div class="factor"><div class="factorRow"><span>'+f.name+'</span><b style="color:'+c+'">'+(f.v>0?'+':'')+f.v+'</b></div><div class="factorBar"><div style="width:'+w+'%;background:'+c+'"></div></div></div>'}).join('');
-  $('timeframeLabel').textContent=cfg.timeframe+' model · completed candles';
+  $('timeframeLabel').textContent=cfg.timeframe+' Micro-Win · target '+cfg.targetPct.toFixed(1)+'% / stop '+cfg.stopPct.toFixed(1)+'%';
   render();
 }
 function renderTrades(){
@@ -330,7 +333,7 @@ function backtest(){
       else if(m.score<=cfg.exitScore){exit=true;ep=price}
       if(exit){const gross=pos.qty*ep,fee=gross*cfg.feePct/100,pnl=(ep-pos.entry)*pos.qty-pos.entryFee-fee;cash+=gross-fee;trades++;if(pnl>0)wins++;pos=null}
     }else if(m.score>=cfg.entryScore){
-      const stopDist=Math.max(m.atr*cfg.atrMult,price*.008),risk=(cash)*cfg.riskPct/100,qty=Math.min(risk/stopDist,cash*cfg.maxAllocPct/100/price),q=Math.floor(qty*10)/10,cost=q*price,fee=cost*cfg.feePct/100;if(q>0&&cost+fee<=cash){cash-=cost+fee;pos={qty:q,entry:price,stop:price-stopDist,target:price+stopDist*cfg.rewardRisk,entryFee:fee}}
+      const stopDist=price*cfg.stopPct/100,risk=(cash)*cfg.riskPct/100,qty=Math.min(risk/stopDist,cash*cfg.maxAllocPct/100/price),q=Math.floor(qty*10)/10,cost=q*price,fee=cost*cfg.feePct/100;if(q>0&&cost+fee<=cash){cash-=cost+fee;pos={qty:q,entry:price,stop:price-stopDist,target:price*(1+cfg.targetPct/100),entryFee:fee}}
     }
     const eq=cash+(pos?pos.qty*price:0);peak=Math.max(peak,eq);maxDd=Math.max(maxDd,(peak-eq)/peak*100);
   }
@@ -338,14 +341,14 @@ function backtest(){
   $('btReturn').textContent=pct(ret);$('btReturn').className=ret>=0?'green':'red';$('btTrades').textContent=trades;$('btWin').textContent=trades?Math.round(wins/trades*100)+'%':'—';$('btDd').textContent=maxDd.toFixed(1)+'%';$('btNote').textContent='Tested '+data.length+' historical '+cfg.timeframe+' candles. Fees included. Past simulation does not predict future results.';
 }
 function openSettings(){
-  $('setBalance').value=cfg.balance;$('setTf').value=cfg.timeframe;$('setRisk').value=cfg.riskPct;$('setAlloc').value=cfg.maxAllocPct;$('setEntry').value=cfg.entryScore;$('setExit').value=cfg.exitScore;$('setAtr').value=cfg.atrMult;$('setRR').value=cfg.rewardRisk;$('setFee').value=cfg.feePct;$('setDaily').value=cfg.maxDailyLossPct;$('settings').classList.add('show')
+  $('setBalance').value=cfg.balance;$('setTf').value=cfg.timeframe;$('setRisk').value=cfg.riskPct;$('setAlloc').value=cfg.maxAllocPct;$('setEntry').value=cfg.entryScore;$('setExit').value=cfg.exitScore;$('setStop').value=cfg.stopPct;$('setTarget').value=cfg.targetPct;$('setFee').value=cfg.feePct;$('setDaily').value=cfg.maxDailyLossPct;$('settings').classList.add('show')
 }
 function saveSettings(){
-  const oldTf=cfg.timeframe;cfg.balance=clamp(+$('setBalance').value||10000,100,100000000);cfg.timeframe=$('setTf').value;cfg.riskPct=clamp(+$('setRisk').value||1,.1,5);cfg.maxAllocPct=clamp(+$('setAlloc').value||30,5,100);cfg.entryScore=clamp(+$('setEntry').value||55,20,95);cfg.exitScore=clamp(+$('setExit').value||-25,-95,20);cfg.atrMult=clamp(+$('setAtr').value||1.8,.5,5);cfg.rewardRisk=clamp(+$('setRR').value||2,.5,5);cfg.feePct=clamp(+$('setFee').value||.1,0,1);cfg.maxDailyLossPct=clamp(+$('setDaily').value||3,.5,20);save();$('settings').classList.remove('show');if(oldTf!==cfg.timeframe)refreshCandles();else{model=signalModel(candles);renderModel()}toast('Paper bot settings saved')
+  const oldTf=cfg.timeframe;cfg.balance=clamp(+$('setBalance').value||10000,100,100000000);cfg.timeframe=$('setTf').value;cfg.riskPct=clamp(+$('setRisk').value||1,.1,5);cfg.maxAllocPct=clamp(+$('setAlloc').value||30,5,100);cfg.entryScore=clamp(+$('setEntry').value||20,10,95);cfg.exitScore=clamp(+$('setExit').value||-20,-95,20);cfg.stopPct=clamp(+$('setStop').value||.4,.2,3);cfg.targetPct=clamp(+$('setTarget').value||.8,.3,5);cfg.feePct=clamp(+$('setFee').value||.1,0,1);cfg.maxDailyLossPct=clamp(+$('setDaily').value||3,.5,20);save();$('settings').classList.remove('show');if(oldTf!==cfg.timeframe)refreshCandles();else{model=signalModel(candles);renderModel()}toast('Paper bot settings saved')
 }
 async function refreshTicker(){try{await fetchTicker();render();managePosition()}catch(e){$('feedDot').style.background='var(--red)';$('lastUpdate').textContent='Market feed unavailable';}}
 async function refreshCandles(){try{await fetchCandles(500)}catch(e){toast('Could not load WLFI candles.',4000)}}
-function resetAccount(){if(!confirm('Reset the paper account and erase simulated trade history?'))return;account={cash:cfg.balance,position:null,trades:[],startEquity:cfg.balance,dayStartEquity:cfg.balance,dayKey:new Date().toISOString().slice(0,10),botOn:false,lastProcessedCandle:null};save();render();toast('Paper account reset')}
+function resetAccount(){if(!confirm('Reset the paper account and erase simulated trade history?'))return;account={cash:cfg.balance,position:null,trades:[],startEquity:cfg.balance,dayStartEquity:cfg.balance,dayKey:new Date().toISOString().slice(0,10),botOn:true,lastProcessedCandle:null,lastExitCandle:null};save();render();toast('Paper account reset')}
 document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.page));window.scrollTo(0,0)}));
 $('botBtn').addEventListener('click',()=>{account.botOn=!account.botOn;save();render();toast(account.botOn?'Auto paper bot started':'Auto paper bot stopped')});
 $('manualBtn').addEventListener('click',()=>paperBuy());
