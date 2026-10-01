@@ -135,7 +135,9 @@ main{max-width:900px;margin:auto;padding:12px}.card{background:linear-gradient(1
 
 <script>
 const KBASES=['https://external-api.kalshi.com/trade-api/v2','https://api.elections.kalshi.com/trade-api/v2'];
-const SERIES='KXBTC15M', STORE='kalshi-btc15-paper-v1';
+const params=new URLSearchParams(location.search);
+const RELAY=(params.get('relay')||localStorage.getItem('kalshiRelay')||(location.hostname.endsWith('.vercel.app')?'/api/kalshi':'')).replace(/\/$/,'');
+const SERIES='KXBTC15M', STORE='kalshi-btc15-paper-v2';
 const cfg={startingCash:10000,maxRisk:150,maxContracts:250,minEdge:.055,profitCents:4,stopCents:6,maxEntryPrice:.88,minEntryPrice:.12};
 let state={cash:10000,position:null,trades:[],startEquity:10000,auto:true,currentTicker:null};
 let market=null,btc=0,btcTicks=[],chartTicks=[],kalshiBase=0,lastMarketFetch=0,btcSocket=null,loopBusy=false;
@@ -153,6 +155,20 @@ function save(){localStorage.setItem(STORE,JSON.stringify(state))}
 function load(){try{const x=JSON.parse(localStorage.getItem(STORE));if(x)state={...state,...x}}catch(e){}}
 async function kfetch(path){
   let err;
+  if(RELAY){
+    try{
+      let url=RELAY;
+      if(path.startsWith('/markets/')){
+        const ticker=decodeURIComponent(path.split('/markets/')[1].split('?')[0]);
+        url += (url.includes('?')?'&':'?')+'mode=market&ticker='+encodeURIComponent(ticker);
+      }else{
+        url += (url.includes('?')?'&':'?')+'mode=active';
+      }
+      const r=await fetch(url,{cache:'no-store'});
+      if(!r.ok)throw new Error('Relay HTTP '+r.status);
+      return await r.json();
+    }catch(e){err=e}
+  }
   for(let i=0;i<KBASES.length;i++){
     const idx=(kalshiBase+i)%KBASES.length;
     try{
@@ -337,7 +353,12 @@ async function secondLoop(){
     if(!market||Date.now()-lastMarketFetch>850){await refreshMarket();lastMarketFetch=Date.now()}
     const q=quotes(),mid=(q.yb+q.ya)/2,fair=modelProbability();if(Number.isFinite(mid))chartTicks.push({t:Date.now(),m:mid,f:fair});if(chartTicks.length>240)chartTicks.shift();
     autoTrade();render();drawChart();$('dot').style.background='var(--green)';
-  }catch(e){$('dot').style.background='var(--red)';$('feedStatus').textContent='Feed issue · retrying';}
+  }catch(e){
+    $('dot').style.background='var(--red)';
+    $('feedStatus').textContent=(!RELAY&&location.hostname.includes('github.io'))
+      ? 'Kalshi relay required · BTC reference connected'
+      : 'Kalshi relay issue · retrying';
+  }
   loopBusy=false;
 }
 document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.page));window.scrollTo(0,0)}));
@@ -346,7 +367,14 @@ $('closeBtn').addEventListener('click',()=>closePosition('Manual paper close'));
 $('yesBtn').addEventListener('click',()=>openPosition('YES','Manual paper entry'));
 $('noBtn').addEventListener('click',()=>openPosition('NO','Manual paper entry'));
 window.addEventListener('resize',drawChart);
-load();connectBTC();discoverMarket().catch(e=>toast(e.message,4000));setInterval(secondLoop,1000);secondLoop();
+load();
+if(params.get('relay')) localStorage.setItem('kalshiRelay',params.get('relay'));
+connectBTC();
+discoverMarket().catch(e=>{
+  if(!RELAY&&location.hostname.includes('github.io')) toast('Kalshi needs the server relay. BTC reference is connected, but Kalshi quotes are blocked in the browser.',6000);
+  else toast(e.message,4000);
+});
+setInterval(secondLoop,1000);secondLoop();
 </script>
 </body>
 </html>
