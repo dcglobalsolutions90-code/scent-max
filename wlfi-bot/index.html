@@ -60,7 +60,7 @@ label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transf
 
   <div class="section"><h2>Live market</h2><span class="muted" id="timeframeLabel">3-minute Micro-Win model</span></div>
   <div id="chartWrap" class="card">
-    <div class="chartTop"><div class="chartLegend"><span class="key"><i class="sw"></i> WLFI</span><span class="key"><i class="sw" style="background:#ffd166"></i> EMA 9</span><span class="key"><i class="sw" style="background:#ff9f43"></i> EMA 21</span></div><span class="muted" id="chartRange"></span></div>
+    <div class="chartTop"><div class="chartLegend"><span class="key"><i class="sw"></i> WLFI LIVE</span><span class="key"><i class="sw" style="background:#ffd166"></i> 10s avg</span><span class="key"><i class="sw" style="background:#ff9f43"></i> 30s avg</span></div><span class="muted" id="chartRange">1-second chart</span></div>
     <canvas id="chart"></canvas>
   </div>
 
@@ -158,7 +158,7 @@ const BASES=['https://data-api.binance.vision','https://api.binance.com'];
 const STORE='wlfi-paper-bot-v2';
 const defaults={balance:10000,timeframe:'3m',riskPct:.6,maxAllocPct:30,entryScore:20,exitScore:-20,stopPct:.4,targetPct:.8,feePct:.1,maxDailyLossPct:3,cooldownBars:1};
 let cfg={...defaults}, account={cash:10000,position:null,trades:[],startEquity:10000,dayStartEquity:10000,dayKey:new Date().toISOString().slice(0,10),botOn:true,lastProcessedCandle:null,lastExitCandle:null};
-let candles=[],ticker=null,model=null,pollTimer=null,candleTimer=null,baseIndex=0;
+let candles=[],ticker=null,model=null,pollTimer=null,candleTimer=null,baseIndex=0,livePrice=0,liveSocket=null,tickSeries=[],lastTickTime=0,lastFastEntry=0;
 
 const $=id=>document.getElementById(id);
 function toast(msg,ms=2500){$('toast').textContent=msg;$('toast').style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').style.display='none',ms)}
@@ -181,6 +181,7 @@ async function api(path){
 }
 async function fetchTicker(){
   ticker=await api('/api/v3/ticker/24hr?symbol='+SYMBOL);
+  if(!livePrice) livePrice=Number(ticker.lastPrice);
   $('feedDot').style.background='var(--green)';
   $('lastUpdate').textContent='Live Binance market · '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit',second:'2-digit'});
 }
@@ -233,7 +234,7 @@ function signalModel(cs){
 function equity(price=currentPrice()){
   return account.cash+(account.position?account.position.qty*price:0);
 }
-function currentPrice(){return ticker?Number(ticker.lastPrice):candles.length?candles[candles.length-1].c:0}
+function currentPrice(){return livePrice|| (ticker?Number(ticker.lastPrice):candles.length?candles[candles.length-1].c:0)}
 function dailyGuard(){
   const today=new Date().toISOString().slice(0,10);if(account.dayKey!==today){account.dayKey=today;account.dayStartEquity=equity();save()}
   const loss=(account.dayStartEquity-equity())/account.dayStartEquity*100;return loss>=cfg.maxDailyLossPct;
@@ -279,11 +280,32 @@ function processBot(){
   const closed=candles[candles.length-2];if(!closed)return;
   if(account.lastProcessedCandle===closed.t)return;
   account.lastProcessedCandle=closed.t;
-  if(!account.position&&model.score>=cfg.entryScore){
-    const cooling=account.lastExitCandle && closed.t<=account.lastExitCandle+(cfg.cooldownBars||1)*timeframeMs(cfg.timeframe);
-    if(!cooling) paperBuy('Micro-Win auto entry');
-  } else if(account.position&&model.score<=cfg.exitScore) paperSell('Micro-Win model exit');
   save();
+}
+function recentMomentum(seconds=20){
+  const now=Date.now(),pts=tickSeries.filter(x=>now-x.t<=seconds*1000);
+  if(pts.length<2)return 0;
+  return (pts[pts.length-1].p/pts[0].p-1)*100;
+}
+function liveModel(){
+  if(!candles.length)return model;
+  const cur={...candles[candles.length-1]};
+  cur.c=currentPrice();cur.h=Math.max(cur.h,cur.c);cur.l=Math.min(cur.l,cur.c);
+  const base=candles.slice(0,-1);
+  return signalModel([...base,cur,{...cur,t:cur.t+1}]);
+}
+function fastBotTick(){
+  if(!account.botOn||!candles.length)return;
+  model=liveModel();
+  managePosition();
+  const mom20=recentMomentum(20);
+  const fastEntry=model.score>=cfg.entryScore || (model.score>=12 && mom20>=0.18);
+  if(!account.position && fastEntry && Date.now()-lastFastEntry>30000 && !dailyGuard()){
+    lastFastEntry=Date.now();
+    paperBuy(model.score>=cfg.entryScore?'Live-score entry':'20-second momentum entry');
+  } else if(account.position && model.score<=cfg.exitScore){
+    paperSell('Live model exit');
+  }
 }
 function timeframeMs(tf){return tf==='1m'?60000:tf==='3m'?180000:tf==='5m'?300000:tf==='15m'?900000:tf==='1h'?3600000:300000}
 function render(){
@@ -311,14 +333,18 @@ function renderTrades(){
 }
 function drawChart(){
   const cv=$('chart'),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;const x=cv.getContext('2d');x.scale(dpr,dpr);x.clearRect(0,0,w,h);
-  const cs=candles.slice(-90);if(cs.length<3)return;const cl=cs.map(c=>c.c),emin=Math.min(...cs.map(c=>c.l)),emax=Math.max(...cs.map(c=>c.h)),pad=(emax-emin)*.12||emax*.01,lo=emin-pad,hi=emax+pad;
-  const X=i=>14+i*(w-28)/(cs.length-1),Y=v=>h-15-(v-lo)/(hi-lo)*(h-30);
+  const pts=tickSeries.slice(-120);
+  if(pts.length<2){
+    x.fillStyle='#8da6b5';x.font='12px -apple-system';x.fillText('Waiting for live ticks…',14,24);return;
+  }
+  const vals=pts.map(v=>v.p),emin=Math.min(...vals),emax=Math.max(...vals),pad=(emax-emin)*.25||emax*.0015,lo=emin-pad,hi=emax+pad;
+  const X=i=>14+i*(w-28)/(pts.length-1),Y=v=>h-15-(v-lo)/(hi-lo)*(h-30);
   x.strokeStyle='#173548';x.lineWidth=1;for(let i=1;i<4;i++){const yy=i*h/4;x.beginPath();x.moveTo(0,yy);x.lineTo(w,yy);x.stroke()}
   function line(vals,color,width=2){x.strokeStyle=color;x.lineWidth=width;x.beginPath();vals.forEach((v,i)=>{const xx=X(i),yy=Y(v);i?x.lineTo(xx,yy):x.moveTo(xx,yy)});x.stroke()}
-  line(cl,'#63dcff',2.4);
-  const allCl=candles.map(c=>c.c),e9=emaSeries(allCl,9).slice(-90),e21=emaSeries(allCl,21).slice(-90);line(e9,'#ffd166',1.3);line(e21,'#ff9f43',1.3);
+  function rolling(n){return vals.map((_,i)=>{const a=vals.slice(Math.max(0,i-n+1),i+1);return a.reduce((s,v)=>s+v,0)/a.length})}
+  line(vals,'#63dcff',2.4);line(rolling(10),'#ffd166',1.3);line(rolling(30),'#ff9f43',1.3);
   x.fillStyle='#90a8b6';x.font='10px -apple-system';x.fillText(px(hi),5,11);x.fillText(px(lo),5,h-3);
-  $('chartRange').textContent=px(emin)+' – '+px(emax);
+  $('chartRange').textContent='LIVE · '+pts.length+' sec · '+px(emin)+'–'+px(emax);
 }
 function backtest(){
   if(candles.length<100)return toast('Need more candle history.');
@@ -358,7 +384,43 @@ $('backtestBtn').addEventListener('click',backtest);
 $('settingsOpen').addEventListener('click',openSettings);$('settingsClose').addEventListener('click',()=>$('settings').classList.remove('show'));$('settingsSave').addEventListener('click',saveSettings);
 $('settings').addEventListener('click',e=>{if(e.target===$('settings'))$('settings').classList.remove('show')});
 window.addEventListener('resize',drawChart);
-load();render();refreshTicker();refreshCandles();pollTimer=setInterval(refreshTicker,7000);candleTimer=setInterval(refreshCandles,30000);
+function connectLive(){
+  if(liveSocket){try{liveSocket.close()}catch(e){}}
+  const urls=['wss://data-stream.binance.vision/ws/wlfiusdt@trade','wss://stream.binance.com:9443/ws/wlfiusdt@trade'];
+  let idx=0;
+  const open=()=>{
+    try{
+      const ws=new WebSocket(urls[idx]);liveSocket=ws;
+      ws.onopen=()=>{$('feedDot').style.background='var(--green)';$('lastUpdate').textContent='LIVE stream connected · 1-second engine';};
+      ws.onmessage=e=>{
+        try{
+          const d=JSON.parse(e.data),p=Number(d.p);
+          if(Number.isFinite(p)&&p>0){livePrice=p;lastTickTime=Date.now();}
+        }catch(_){}
+      };
+      ws.onerror=()=>{};
+      ws.onclose=()=>{
+        if(idx===0){idx=1;setTimeout(open,700)}
+        else setTimeout(connectLive,2500);
+      };
+    }catch(e){if(idx===0){idx=1;setTimeout(open,700)}else setTimeout(connectLive,2500)}
+  };
+  open();
+}
+function oneSecondEngine(){
+  const p=currentPrice();
+  if(p>0){
+    tickSeries.push({t:Date.now(),p});if(tickSeries.length>180)tickSeries.shift();
+    const cur=candles[candles.length-1];
+    if(cur){cur.c=p;cur.h=Math.max(cur.h,p);cur.l=Math.min(cur.l,p)}
+    model=liveModel();renderModel();fastBotTick();drawChart();render();
+    $('lastUpdate').textContent=(Date.now()-lastTickTime<5000?'LIVE':'REST fallback')+' · '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit',second:'2-digit'});
+  }
+}
+load();render();refreshTicker();refreshCandles();connectLive();
+pollTimer=setInterval(refreshTicker,10000);
+candleTimer=setInterval(refreshCandles,15000);
+setInterval(oneSecondEngine,1000);
 </script>
 </body>
 </html>
