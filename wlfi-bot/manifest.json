@@ -1,0 +1,10 @@
+{
+  "name": "WLFI AI Paper Trader",
+  "short_name": "WLFI Bot",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#071019",
+  "theme_color": "#071019",
+  "description": "Paper-only automated WLFI/USDT crypto strategy simulator using live market data."
+}
