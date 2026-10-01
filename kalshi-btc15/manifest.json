@@ -1,0 +1,10 @@
+{
+  "name": "Kalshi BTC 15m Paper Bot",
+  "short_name": "BTC15 Bot",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#071019",
+  "theme_color": "#071019",
+  "description": "1-second paper trading dashboard for Kalshi KXBTC15M Bitcoin markets."
+}
