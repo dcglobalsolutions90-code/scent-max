@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#071019">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WLFI Bot">
+<link rel="manifest" href="manifest.json">
+<title>WLFI AI Paper Trader</title>
+<style>
+:root{--bg:#071019;--panel:#0c1b26;--panel2:#102534;--line:#1b384b;--text:#edf6fb;--muted:#8da6b5;--green:#58d68d;--red:#ff6565;--yellow:#ffd166;--cyan:#63dcff;--orange:#ff9f43}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+body{min-height:100svh;background:radial-gradient(circle at 75% -10%,#14334a 0,#071019 35%);padding:env(safe-area-inset-top) 0 calc(74px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:50;padding:12px 13px;background:rgba(7,16,25,.94);backdrop-filter:blur(14px);border-bottom:1px solid #153044}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:10px}.brand{font-weight:950;font-size:18px;letter-spacing:.04em}.brand span{color:var(--cyan)}
+.live{font-size:10px;color:var(--muted);display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+main{max-width:820px;margin:auto;padding:12px}.card{background:linear-gradient(180deg,#0d2230,#091923);border:1px solid var(--line);border-radius:17px}.hero{padding:15px}.pair{font-size:11px;color:var(--muted);font-weight:800;letter-spacing:.08em}.price{font-size:34px;font-weight:950;margin-top:3px}.change{font-size:12px;font-weight:850}
+.signalRow{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;margin-top:13px}.signalBox,.confidence{background:#0b2030;border:1px solid #18384b;border-radius:13px;padding:11px}
+.signalBox span,.confidence span,.stat span,.mini span{display:block;font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}.signalBox b{font-size:22px}.confidence b{font-size:22px}
+.gauge{height:8px;background:#142d3d;border-radius:999px;overflow:hidden;margin-top:8px}.gauge div{height:100%;border-radius:999px;transition:width .25s}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}.stat{background:#0b1f2d;border-radius:11px;padding:9px}.stat b{display:block;font-size:14px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.section{margin:17px 2px 8px;display:flex;align-items:center;justify-content:space-between;gap:10px}.section h2{font-size:12px;margin:0;text-transform:uppercase;letter-spacing:.08em}.muted{font-size:11px;color:var(--muted);line-height:1.45}
+#chartWrap{padding:10px}.chartTop{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 8px}.chartLegend{font-size:10px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}.key{display:inline-flex;align-items:center;gap:4px}.sw{width:14px;height:3px;border-radius:4px;background:var(--cyan)}canvas{width:100%;height:250px;display:block;border-radius:11px;background:#071722}
+.botgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.position,.engine{padding:13px}.positionTitle{display:flex;align-items:center;justify-content:space-between;gap:8px}.positionTitle b{font-size:14px}.badge{font-size:9px;font-weight:950;letter-spacing:.07em;padding:5px 8px;border-radius:999px;background:#123144;color:var(--cyan)}
+.miniGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-top:10px}.mini{background:#0b2030;border-radius:10px;padding:9px}.mini b{display:block;font-size:12px;margin-top:3px}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.btn{height:48px;border-radius:12px;border:1px solid #2a5670;background:#113149;color:white;font-size:14px;font-weight:900}.btn.primary{background:var(--cyan);border-color:var(--cyan);color:#05131b}.btn.danger{background:#411c23;border-color:#78323e;color:#ffd9dd}.btn.sell{background:#4b2323;border-color:#7b3535}.btn:disabled{opacity:.45}
+.engineScore{font-size:31px;font-weight:950}.factor{margin-top:9px}.factorRow{display:flex;justify-content:space-between;font-size:10px;color:#b5c6d0}.factorBar{height:5px;background:#173344;border-radius:99px;overflow:hidden;margin-top:4px}.factorBar div{height:100%;border-radius:99px}
+.tableCard{overflow:hidden}.tableHead,.trade{display:grid;grid-template-columns:1.05fr .8fr .85fr .85fr;gap:6px;align-items:center}.tableHead{padding:9px 11px;background:#0e2634;color:var(--muted);font-size:8px;text-transform:uppercase}.trade{padding:10px 11px;border-top:1px solid #153547;font-size:10px}.trade b{font-size:11px}.green{color:var(--green)}.red{color:var(--red)}
+.backtest{padding:13px}.btgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.bt{background:#0b2030;border-radius:10px;padding:9px}.bt span{display:block;font-size:8px;color:var(--muted);text-transform:uppercase}.bt b{display:block;font-size:13px;margin-top:3px}
+.notice{padding:12px;font-size:11px;line-height:1.5;color:#a7bac5}.notice strong{color:white}
+.settings{position:fixed;z-index:100;inset:0;background:rgba(0,0,0,.58);display:none;align-items:flex-end}.settings.show{display:flex}.settingsCard{width:100%;max-height:88%;overflow:auto;padding:16px 14px calc(16px + env(safe-area-inset-bottom));border-radius:23px 23px 0 0;background:#081b27;border:1px solid #285066}.settingsCard h2{margin:0 0 4px}.settingsCard p{margin:0 0 12px;color:var(--muted);font-size:11px;line-height:1.45}
+label{display:block;font-size:9px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.07em;margin:10px 2px 5px}input,select{width:100%;height:46px;border:1px solid #285066;border-radius:12px;background:#0b2432;color:white;font-size:16px;padding:0 11px;outline:0}.settingsGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}.settingsBtns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
+.bottomnav{position:fixed;left:0;right:0;bottom:0;z-index:70;height:calc(66px + env(safe-area-inset-bottom));padding:6px 9px env(safe-area-inset-bottom);display:grid;grid-template-columns:repeat(3,1fr);background:rgba(5,14,22,.96);backdrop-filter:blur(16px);border-top:1px solid #173247}.nav{border:0;background:transparent;color:#7d97a8;border-radius:11px;font-size:10px;font-weight:800}.nav b{display:block;font-size:20px}.nav.active{background:#102635;color:white}.page{display:none}.page.active{display:block}
+.toast{position:fixed;z-index:120;left:50%;bottom:85px;transform:translateX(-50%);max-width:88%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#071c28;color:white;font-size:11px;display:none;text-align:center}
+@media(max-width:620px){.stats{grid-template-columns:repeat(2,1fr)}.botgrid{grid-template-columns:1fr}.btgrid{grid-template-columns:repeat(2,1fr)}.settingsGrid{grid-template-columns:1fr 1fr}.tableHead,.trade{grid-template-columns:1fr .8fr .8fr}.tableHead div:nth-child(4),.trade div:nth-child(4){display:none}}
+</style>
+</head>
+<body>
+<header><div class="bar"><div><div class="brand">WLFI <span>AI PAPER BOT</span></div><div class="muted" id="lastUpdate">Connecting to Binance…</div></div><div class="live"><span id="feedDot" class="dot"></span><span id="botState">BOT OFF</span></div></div></header>
+<main>
+<section id="dashboard" class="page active">
+  <div class="card hero">
+    <div class="pair">WORLD LIBERTY FINANCIAL · WLFI / USDT · SPOT PAPER TRADING</div>
+    <div class="price" id="price">—</div>
+    <div id="dayChange" class="change">—</div>
+    <div class="signalRow">
+      <div class="signalBox"><span>Model decision</span><b id="signal">WAIT</b><div class="muted" id="signalWhy">Waiting for market data.</div></div>
+      <div class="confidence"><span>Model confidence</span><b id="confidence">—</b><div class="gauge"><div id="confidenceBar"></div></div></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span>Cash</span><b id="cash">$—</b></div>
+      <div class="stat"><span>Equity</span><b id="equity">$—</b></div>
+      <div class="stat"><span>Total P&L</span><b id="totalPnl">$—</b></div>
+      <div class="stat"><span>Win rate</span><b id="winRate">—</b></div>
+    </div>
+  </div>
+
+  <div class="section"><h2>Live market</h2><span class="muted" id="timeframeLabel">5-minute model</span></div>
+  <div id="chartWrap" class="card">
+    <div class="chartTop"><div class="chartLegend"><span class="key"><i class="sw"></i> WLFI</span><span class="key"><i class="sw" style="background:#ffd166"></i> EMA 9</span><span class="key"><i class="sw" style="background:#ff9f43"></i> EMA 21</span></div><span class="muted" id="chartRange"></span></div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="section"><h2>Bot & position</h2><button class="btn" style="height:38px;padding:0 12px" id="settingsOpen">Settings</button></div>
+  <div class="botgrid">
+    <div class="card position">
+      <div class="positionTitle"><b>Paper position</b><span class="badge" id="positionBadge">FLAT</span></div>
+      <div class="miniGrid">
+        <div class="mini"><span>WLFI held</span><b id="qty">0</b></div>
+        <div class="mini"><span>Entry</span><b id="entry">—</b></div>
+        <div class="mini"><span>Stop</span><b id="stop">—</b></div>
+        <div class="mini"><span>Take profit</span><b id="target">—</b></div>
+        <div class="mini"><span>Unrealized</span><b id="unrealized">$0.00</b></div>
+        <div class="mini"><span>Risk / trade</span><b id="riskView">—</b></div>
+      </div>
+      <div class="controls">
+        <button id="botBtn" class="btn primary">Start auto bot</button>
+        <button id="manualBtn" class="btn">Paper buy</button>
+      </div>
+      <div class="controls">
+        <button id="sellBtn" class="btn sell" disabled>Paper sell</button>
+        <button id="resetBtn" class="btn danger">Reset account</button>
+      </div>
+    </div>
+
+    <div class="card engine">
+      <div class="positionTitle"><b>AI-style signal engine</b><span class="badge">6 FACTORS</span></div>
+      <div class="engineScore" id="score">0</div>
+      <div class="muted">Score from −100 bearish to +100 bullish. Trades require multiple factors to agree.</div>
+      <div id="factors"></div>
+    </div>
+  </div>
+
+  <div class="section"><h2>Backtest</h2><button id="backtestBtn" class="btn" style="height:38px;padding:0 12px">Run test</button></div>
+  <div class="card backtest">
+    <div class="btgrid">
+      <div class="bt"><span>Return</span><b id="btReturn">—</b></div>
+      <div class="bt"><span>Trades</span><b id="btTrades">—</b></div>
+      <div class="bt"><span>Win rate</span><b id="btWin">—</b></div>
+      <div class="bt"><span>Max drawdown</span><b id="btDd">—</b></div>
+    </div>
+    <div class="muted" id="btNote" style="margin-top:9px">Uses the latest historical candles with the current strategy settings.</div>
+  </div>
+</section>
+
+<section id="trades" class="page">
+  <div class="section"><h2>Paper trade history</h2><span class="muted" id="tradeCount">0 trades</span></div>
+  <div class="card tableCard">
+    <div class="tableHead"><div>Trade</div><div>Price</div><div>P&L</div><div>Reason</div></div>
+    <div id="tradeList"></div>
+  </div>
+</section>
+
+<section id="about" class="page">
+  <div class="section"><h2>How the bot works</h2></div>
+  <div class="card notice">
+    <strong>Paper trading only.</strong> This version cannot place a real order or access your exchange balance.<br><br>
+    The signal engine combines EMA trend, RSI, MACD, Bollinger position, momentum and volume. Position size is limited by your configured risk per trade and maximum account allocation. Stops use ATR volatility, and the profit target is based on a reward-to-risk multiple.<br><br>
+    The bot evaluates completed candles rather than reacting to every price tick. That reduces false entries from short-term noise.<br><br>
+    <strong>Important:</strong> this is a simulation and strategy-testing tool, not a promise of profit. Crypto can move quickly and model performance can change materially.
+  </div>
+</section>
+</main>
+
+<nav class="bottomnav">
+  <button class="nav active" data-page="dashboard"><b>◫</b>Bot</button>
+  <button class="nav" data-page="trades"><b>↕</b>Trades</button>
+  <button class="nav" data-page="about"><b>ⓘ</b>About</button>
+</nav>
+
+<div id="settings" class="settings">
+  <div class="settingsCard">
+    <h2>Paper bot settings</h2>
+    <p>These settings affect future simulated entries and backtests. They never authorize real trading.</p>
+    <div class="settingsGrid">
+      <div><label>Paper starting balance</label><input id="setBalance" type="number" min="100" step="100"></div>
+      <div><label>Timeframe</label><select id="setTf"><option value="1m">1 minute</option><option value="5m" selected>5 minutes</option><option value="15m">15 minutes</option><option value="1h">1 hour</option></select></div>
+      <div><label>Risk per trade %</label><input id="setRisk" type="number" min=".1" max="5" step=".1"></div>
+      <div><label>Max allocation %</label><input id="setAlloc" type="number" min="5" max="100" step="5"></div>
+      <div><label>Entry score</label><input id="setEntry" type="number" min="20" max="95" step="5"></div>
+      <div><label>Exit score</label><input id="setExit" type="number" min="-95" max="20" step="5"></div>
+      <div><label>ATR stop multiple</label><input id="setAtr" type="number" min=".5" max="5" step=".1"></div>
+      <div><label>Reward / risk</label><input id="setRR" type="number" min=".5" max="5" step=".1"></div>
+      <div><label>Paper fee %</label><input id="setFee" type="number" min="0" max="1" step=".01"></div>
+      <div><label>Max daily loss %</label><input id="setDaily" type="number" min=".5" max="20" step=".5"></div>
+    </div>
+    <div class="settingsBtns"><button id="settingsClose" class="btn">Cancel</button><button id="settingsSave" class="btn primary">Save settings</button></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+const SYMBOL='WLFIUSDT';
+const BASES=['https://data-api.binance.vision','https://api.binance.com'];
+const STORE='wlfi-paper-bot-v1';
+const defaults={balance:10000,timeframe:'5m',riskPct:1,maxAllocPct:30,entryScore:55,exitScore:-25,atrMult:1.8,rewardRisk:2,feePct:.1,maxDailyLossPct:3};
+let cfg={...defaults}, account={cash:10000,position:null,trades:[],startEquity:10000,dayStartEquity:10000,dayKey:new Date().toISOString().slice(0,10),botOn:false,lastProcessedCandle:null};
+let candles=[],ticker=null,model=null,pollTimer=null,candleTimer=null,baseIndex=0;
+
+const $=id=>document.getElementById(id);
+function toast(msg,ms=2500){$('toast').textContent=msg;$('toast').style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').style.display='none',ms)}
+function money(v){return '$'+Number(v||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}
+function px(v){if(!Number.isFinite(v))return '—';return '$'+v.toFixed(v<1?5:2)}
+function pct(v){return (v>=0?'+':'')+v.toFixed(2)+'%'}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function save(){localStorage.setItem(STORE,JSON.stringify({cfg,account}))}
+function load(){
+  try{const x=JSON.parse(localStorage.getItem(STORE));if(x?.cfg)cfg={...defaults,...x.cfg};if(x?.account)account={...account,...x.account}}catch(e){}
+  if(!Number.isFinite(account.cash))account.cash=cfg.balance;
+}
+async function api(path){
+  let lastErr;
+  for(let i=0;i<BASES.length;i++){
+    const idx=(baseIndex+i)%BASES.length;
+    try{const r=await fetch(BASES[idx]+path,{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status);baseIndex=idx;return await r.json()}catch(e){lastErr=e}
+  }
+  throw lastErr||new Error('Market data unavailable');
+}
+async function fetchTicker(){
+  ticker=await api('/api/v3/ticker/24hr?symbol='+SYMBOL);
+  $('feedDot').style.background='var(--green)';
+  $('lastUpdate').textContent='Live Binance market · '+new Date().toLocaleTimeString([], {hour:'numeric',minute:'2-digit',second:'2-digit'});
+}
+async function fetchCandles(limit=500){
+  const raw=await api('/api/v3/klines?symbol='+SYMBOL+'&interval='+cfg.timeframe+'&limit='+limit);
+  candles=raw.map(k=>({t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],v:+k[5],closeTime:+k[6]}));
+  model=signalModel(candles);
+  drawChart();renderModel();processBot();
+}
+function sma(a,n){if(a.length<n)return null;let s=0;for(let i=a.length-n;i<a.length;i++)s+=a[i];return s/n}
+function emaSeries(values,n){
+  if(!values.length)return[];const k=2/(n+1),out=[values[0]];for(let i=1;i<values.length;i++)out.push(values[i]*k+out[i-1]*(1-k));return out
+}
+function rsi(values,n=14){
+  if(values.length<n+1)return 50;let g=0,l=0;for(let i=values.length-n;i<values.length;i++){const d=values[i]-values[i-1];if(d>=0)g+=d;else l-=d}if(l===0)return 100;const rs=(g/n)/(l/n);return 100-100/(1+rs)
+}
+function atr(cs,n=14){
+  if(cs.length<n+1)return cs.length?cs[cs.length-1].c*.02:0;let s=0;for(let i=cs.length-n;i<cs.length;i++){const prev=cs[i-1].c;s+=Math.max(cs[i].h-cs[i].l,Math.abs(cs[i].h-prev),Math.abs(cs[i].l-prev))}return s/n
+}
+function std(a,n){
+  if(a.length<n)return 0;const x=a.slice(-n),m=x.reduce((s,v)=>s+v,0)/n;return Math.sqrt(x.reduce((s,v)=>s+(v-m)**2,0)/n)
+}
+function signalModel(cs){
+  if(cs.length<40)return {score:0,confidence:0,signal:'WAIT',factors:[],why:'Need more candles.',atr:0};
+  const closed=cs.slice(0,-1),cl=closed.map(x=>x.c),vol=closed.map(x=>x.v),last=cl[cl.length-1];
+  const e9=emaSeries(cl,9),e21=emaSeries(cl,21),e12=emaSeries(cl,12),e26=emaSeries(cl,26);
+  const macd=e12[e12.length-1]-e26[e26.length-1],macdPrev=e12[e12.length-2]-e26[e26.length-2];
+  const R=rsi(cl,14),mid=sma(cl,20),sd=std(cl,20),upper=mid+2*sd,lower=mid-2*sd;
+  const mom=(last/cl[Math.max(0,cl.length-7)]-1)*100,avgVol=sma(vol,20)||1,vr=vol[vol.length-1]/avgVol;
+  const trend=clamp(((e9[e9.length-1]/e21[e21.length-1]-1)*100)*18,-25,25);
+  const rsiScore=R<30?20:R<45?8:R>75?-25:R>62?-10:0;
+  const macdScore=clamp((macd/(last||1))*100*110,-20,20)+(macd>macdPrev?4:-4);
+  const bbPos=(last-mid)/(2*sd||1),bbScore=clamp(-bbPos*10,-12,12);
+  const momScore=clamp(mom*4,-15,15);
+  const volScore=vr>1.4?(mom>=0?8:-8):vr<.6?-2:0;
+  const score=Math.round(clamp(trend+rsiScore+macdScore+bbScore+momScore+volScore,-100,100));
+  const confidence=Math.round(clamp(45+Math.abs(score)*.55+(vr>1.2?7:0),0,99));
+  const signal=score>=cfg.entryScore?'BUY':score<=cfg.exitScore?'SELL':'WAIT';
+  const factors=[
+    {name:'EMA trend',v:Math.round(trend),max:25},
+    {name:'RSI '+R.toFixed(0),v:Math.round(rsiScore),max:25},
+    {name:'MACD',v:Math.round(macdScore),max:24},
+    {name:'Bollinger',v:Math.round(bbScore),max:12},
+    {name:'Momentum',v:Math.round(momScore),max:15},
+    {name:'Volume',v:Math.round(volScore),max:8}
+  ];
+  let why=signal==='BUY'?'Bullish factors are aligned strongly enough for an entry.':signal==='SELL'?'Bearish factors favor reducing or exiting exposure.':'Signals are mixed; the model is staying patient.';
+  return {score,confidence,signal,factors,why,atr:atr(closed),ema9:e9,ema21:e21,rsi:R,macd,last};
+}
+function equity(price=currentPrice()){
+  return account.cash+(account.position?account.position.qty*price:0);
+}
+function currentPrice(){return ticker?Number(ticker.lastPrice):candles.length?candles[candles.length-1].c:0}
+function dailyGuard(){
+  const today=new Date().toISOString().slice(0,10);if(account.dayKey!==today){account.dayKey=today;account.dayStartEquity=equity();save()}
+  const loss=(account.dayStartEquity-equity())/account.dayStartEquity*100;return loss>=cfg.maxDailyLossPct;
+}
+function paperBuy(reason='Manual paper buy'){
+  if(account.position||!model)return toast('A paper position is already open.');
+  const price=currentPrice();if(!(price>0))return;
+  if(dailyGuard())return toast('Daily loss limit reached. New entries are blocked.',4000);
+  const stopDist=Math.max(model.atr*cfg.atrMult,price*.008);
+  const riskDollars=equity()*cfg.riskPct/100;
+  const qtyRisk=riskDollars/stopDist;
+  const qtyAlloc=equity()*cfg.maxAllocPct/100/price;
+  let qty=Math.floor(Math.min(qtyRisk,qtyAlloc)*10)/10;
+  const cost=qty*price,fee=cost*cfg.feePct/100;
+  if(qty<=0||cost+fee>account.cash){qty=Math.floor((account.cash/(1+cfg.feePct/100)/price)*10)/10}
+  if(qty<=0)return toast('Not enough paper cash.');
+  const finalCost=qty*price,finalFee=finalCost*cfg.feePct/100;
+  account.cash-=finalCost+finalFee;
+  account.position={qty,entry:price,stop:price-stopDist,target:price+stopDist*cfg.rewardRisk,initialStop:price-stopDist,opened:Date.now(),entryFee:finalFee,reason};
+  account.trades.unshift({type:'BUY',time:Date.now(),price,qty,pnl:null,reason});
+  save();render();toast('Paper BUY: '+qty.toFixed(1)+' WLFI');
+}
+function paperSell(reason='Manual paper sell'){
+  const p=account.position;if(!p)return;
+  const price=currentPrice(),gross=p.qty*price,fee=gross*cfg.feePct/100,proceeds=gross-fee;
+  account.cash+=proceeds;
+  const pnl=(price-p.entry)*p.qty-p.entryFee-fee;
+  account.trades.unshift({type:'SELL',time:Date.now(),price,qty:p.qty,pnl,reason});
+  account.position=null;save();render();toast('Paper position closed · '+money(pnl));
+}
+function managePosition(){
+  const p=account.position;if(!p)return;const price=currentPrice();
+  const risk=p.entry-p.initialStop;
+  if(price>=p.entry+risk&&p.stop<p.entry)p.stop=p.entry;
+  if(price>=p.entry+risk*1.4)p.stop=Math.max(p.stop,price-risk*.75);
+  if(price<=p.stop)return paperSell('Stop / trailing stop');
+  if(price>=p.target)return paperSell('Take profit');
+  if(model&&model.score<=cfg.exitScore)return paperSell('Model exit');
+}
+function processBot(){
+  managePosition();
+  if(!account.botOn||!candles.length||!model)return;
+  const closed=candles[candles.length-2];if(!closed)return;
+  if(account.lastProcessedCandle===closed.t)return;
+  account.lastProcessedCandle=closed.t;
+  if(!account.position&&model.score>=cfg.entryScore)paperBuy('Auto model entry');
+  else if(account.position&&model.score<=cfg.exitScore)paperSell('Auto model exit');
+  save();
+}
+function render(){
+  const p=currentPrice(),eq=equity(p),pnl=eq-account.startEquity,wins=account.trades.filter(x=>x.type==='SELL'&&x.pnl>0).length,closes=account.trades.filter(x=>x.type==='SELL').length;
+  $('price').textContent=px(p);
+  if(ticker){const ch=Number(ticker.priceChangePercent);$('dayChange').textContent=pct(ch)+' today · High '+px(Number(ticker.highPrice))+' · Low '+px(Number(ticker.lowPrice));$('dayChange').className='change '+(ch>=0?'green':'red')}
+  $('cash').textContent=money(account.cash);$('equity').textContent=money(eq);$('totalPnl').textContent=money(pnl);$('totalPnl').className=pnl>=0?'green':'red';$('winRate').textContent=closes?Math.round(wins/closes*100)+'%':'—';
+  $('botState').textContent=account.botOn?'BOT RUNNING':'BOT OFF';$('botBtn').textContent=account.botOn?'Stop auto bot':'Start auto bot';$('botBtn').className='btn '+(account.botOn?'danger':'primary');
+  $('riskView').textContent=cfg.riskPct.toFixed(1)+'% · max '+cfg.maxAllocPct+'%';
+  if(account.position){
+    const x=account.position,u=(p-x.entry)*x.qty;$('positionBadge').textContent='LONG';$('positionBadge').style.color='var(--green)';$('qty').textContent=x.qty.toFixed(1);$('entry').textContent=px(x.entry);$('stop').textContent=px(x.stop);$('target').textContent=px(x.target);$('unrealized').textContent=money(u);$('unrealized').className=u>=0?'green':'red';$('sellBtn').disabled=false;$('manualBtn').disabled=true;
+  }else{$('positionBadge').textContent='FLAT';$('positionBadge').style.color='var(--cyan)';$('qty').textContent='0';$('entry').textContent='—';$('stop').textContent='—';$('target').textContent='—';$('unrealized').textContent='$0.00';$('unrealized').className='';$('sellBtn').disabled=true;$('manualBtn').disabled=false}
+  $('tradeCount').textContent=closes+' closed trade'+(closes===1?'':'s');renderTrades();
+}
+function renderModel(){
+  if(!model)return;$('score').textContent=(model.score>0?'+':'')+model.score;$('signal').textContent=model.signal;$('signalWhy').textContent=model.why;$('confidence').textContent=model.confidence+'%';$('confidenceBar').style.width=model.confidence+'%';
+  const col=model.signal==='BUY'?'var(--green)':model.signal==='SELL'?'var(--red)':'var(--yellow)';$('signal').style.color=col;$('confidenceBar').style.background=col;$('score').style.color=model.score>20?'var(--green)':model.score<-20?'var(--red)':'var(--yellow)';
+  $('factors').innerHTML=model.factors.map(f=>{const w=Math.min(100,Math.abs(f.v)/f.max*100),c=f.v>=0?'var(--green)':'var(--red)';return '<div class="factor"><div class="factorRow"><span>'+f.name+'</span><b style="color:'+c+'">'+(f.v>0?'+':'')+f.v+'</b></div><div class="factorBar"><div style="width:'+w+'%;background:'+c+'"></div></div></div>'}).join('');
+  $('timeframeLabel').textContent=cfg.timeframe+' model · completed candles';
+  render();
+}
+function renderTrades(){
+  const list=$('tradeList');if(!account.trades.length){list.innerHTML='<div class="notice">No paper trades yet.</div>';return}
+  list.innerHTML=account.trades.slice(0,100).map(t=>'<div class="trade"><div><b>'+t.type+'</b><br><span class="muted">'+new Date(t.time).toLocaleString()+'</span></div><div>'+px(t.price)+'<br><span class="muted">'+Number(t.qty).toFixed(1)+' WLFI</span></div><div class="'+(t.pnl==null?'':t.pnl>=0?'green':'red')+'">'+(t.pnl==null?'—':money(t.pnl))+'</div><div>'+t.reason+'</div></div>').join('');
+}
+function drawChart(){
+  const cv=$('chart'),dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;const x=cv.getContext('2d');x.scale(dpr,dpr);x.clearRect(0,0,w,h);
+  const cs=candles.slice(-90);if(cs.length<3)return;const cl=cs.map(c=>c.c),emin=Math.min(...cs.map(c=>c.l)),emax=Math.max(...cs.map(c=>c.h)),pad=(emax-emin)*.12||emax*.01,lo=emin-pad,hi=emax+pad;
+  const X=i=>14+i*(w-28)/(cs.length-1),Y=v=>h-15-(v-lo)/(hi-lo)*(h-30);
+  x.strokeStyle='#173548';x.lineWidth=1;for(let i=1;i<4;i++){const yy=i*h/4;x.beginPath();x.moveTo(0,yy);x.lineTo(w,yy);x.stroke()}
+  function line(vals,color,width=2){x.strokeStyle=color;x.lineWidth=width;x.beginPath();vals.forEach((v,i)=>{const xx=X(i),yy=Y(v);i?x.lineTo(xx,yy):x.moveTo(xx,yy)});x.stroke()}
+  line(cl,'#63dcff',2.4);
+  const allCl=candles.map(c=>c.c),e9=emaSeries(allCl,9).slice(-90),e21=emaSeries(allCl,21).slice(-90);line(e9,'#ffd166',1.3);line(e21,'#ff9f43',1.3);
+  x.fillStyle='#90a8b6';x.font='10px -apple-system';x.fillText(px(hi),5,11);x.fillText(px(lo),5,h-3);
+  $('chartRange').textContent=px(emin)+' – '+px(emax);
+}
+function backtest(){
+  if(candles.length<100)return toast('Need more candle history.');
+  let cash=cfg.balance,pos=null,trades=0,wins=0,peak=cfg.balance,maxDd=0;
+  const data=candles.slice(0,-1);
+  for(let i=40;i<data.length;i++){
+    const slice=data.slice(0,i+1);const m=signalModel([...slice,{...slice[slice.length-1]}]);const price=data[i].c;
+    if(pos){
+      let exit=false,ep=price;
+      if(data[i].l<=pos.stop){exit=true;ep=pos.stop}
+      else if(data[i].h>=pos.target){exit=true;ep=pos.target}
+      else if(m.score<=cfg.exitScore){exit=true;ep=price}
+      if(exit){const gross=pos.qty*ep,fee=gross*cfg.feePct/100,pnl=(ep-pos.entry)*pos.qty-pos.entryFee-fee;cash+=gross-fee;trades++;if(pnl>0)wins++;pos=null}
+    }else if(m.score>=cfg.entryScore){
+      const stopDist=Math.max(m.atr*cfg.atrMult,price*.008),risk=(cash)*cfg.riskPct/100,qty=Math.min(risk/stopDist,cash*cfg.maxAllocPct/100/price),q=Math.floor(qty*10)/10,cost=q*price,fee=cost*cfg.feePct/100;if(q>0&&cost+fee<=cash){cash-=cost+fee;pos={qty:q,entry:price,stop:price-stopDist,target:price+stopDist*cfg.rewardRisk,entryFee:fee}}
+    }
+    const eq=cash+(pos?pos.qty*price:0);peak=Math.max(peak,eq);maxDd=Math.max(maxDd,(peak-eq)/peak*100);
+  }
+  const last=data[data.length-1].c,eq=cash+(pos?pos.qty*last:0),ret=(eq/cfg.balance-1)*100;
+  $('btReturn').textContent=pct(ret);$('btReturn').className=ret>=0?'green':'red';$('btTrades').textContent=trades;$('btWin').textContent=trades?Math.round(wins/trades*100)+'%':'—';$('btDd').textContent=maxDd.toFixed(1)+'%';$('btNote').textContent='Tested '+data.length+' historical '+cfg.timeframe+' candles. Fees included. Past simulation does not predict future results.';
+}
+function openSettings(){
+  $('setBalance').value=cfg.balance;$('setTf').value=cfg.timeframe;$('setRisk').value=cfg.riskPct;$('setAlloc').value=cfg.maxAllocPct;$('setEntry').value=cfg.entryScore;$('setExit').value=cfg.exitScore;$('setAtr').value=cfg.atrMult;$('setRR').value=cfg.rewardRisk;$('setFee').value=cfg.feePct;$('setDaily').value=cfg.maxDailyLossPct;$('settings').classList.add('show')
+}
+function saveSettings(){
+  const oldTf=cfg.timeframe;cfg.balance=clamp(+$('setBalance').value||10000,100,100000000);cfg.timeframe=$('setTf').value;cfg.riskPct=clamp(+$('setRisk').value||1,.1,5);cfg.maxAllocPct=clamp(+$('setAlloc').value||30,5,100);cfg.entryScore=clamp(+$('setEntry').value||55,20,95);cfg.exitScore=clamp(+$('setExit').value||-25,-95,20);cfg.atrMult=clamp(+$('setAtr').value||1.8,.5,5);cfg.rewardRisk=clamp(+$('setRR').value||2,.5,5);cfg.feePct=clamp(+$('setFee').value||.1,0,1);cfg.maxDailyLossPct=clamp(+$('setDaily').value||3,.5,20);save();$('settings').classList.remove('show');if(oldTf!==cfg.timeframe)refreshCandles();else{model=signalModel(candles);renderModel()}toast('Paper bot settings saved')
+}
+async function refreshTicker(){try{await fetchTicker();render();managePosition()}catch(e){$('feedDot').style.background='var(--red)';$('lastUpdate').textContent='Market feed unavailable';}}
+async function refreshCandles(){try{await fetchCandles(500)}catch(e){toast('Could not load WLFI candles.',4000)}}
+function resetAccount(){if(!confirm('Reset the paper account and erase simulated trade history?'))return;account={cash:cfg.balance,position:null,trades:[],startEquity:cfg.balance,dayStartEquity:cfg.balance,dayKey:new Date().toISOString().slice(0,10),botOn:false,lastProcessedCandle:null};save();render();toast('Paper account reset')}
+document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===b.dataset.page));window.scrollTo(0,0)}));
+$('botBtn').addEventListener('click',()=>{account.botOn=!account.botOn;save();render();toast(account.botOn?'Auto paper bot started':'Auto paper bot stopped')});
+$('manualBtn').addEventListener('click',()=>paperBuy());
+$('sellBtn').addEventListener('click',()=>paperSell());
+$('resetBtn').addEventListener('click',resetAccount);
+$('backtestBtn').addEventListener('click',backtest);
+$('settingsOpen').addEventListener('click',openSettings);$('settingsClose').addEventListener('click',()=>$('settings').classList.remove('show'));$('settingsSave').addEventListener('click',saveSettings);
+$('settings').addEventListener('click',e=>{if(e.target===$('settings'))$('settings').classList.remove('show')});
+window.addEventListener('resize',drawChart);
+load();render();refreshTicker();refreshCandles();pollTimer=setInterval(refreshTicker,7000);candleTimer=setInterval(refreshCandles,30000);
+</script>
+</body>
+</html>
