@@ -1,0 +1,9 @@
+{
+  "name": "TerraSignal",
+  "short_name": "TerraSignal",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#07121b",
+  "theme_color": "#07121b",
+  "description": "Experimental live seismic watch and earthquake anomaly dashboard."
+}
