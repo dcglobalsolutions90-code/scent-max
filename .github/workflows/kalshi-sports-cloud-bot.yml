@@ -1,4 +1,5 @@
 name: Kalshi sports cloud paper bot
+# Cloud scanner aligned with Nightlink 24-hour candidate pool
 
 on:
   push:
