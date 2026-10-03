@@ -1,0 +1,40 @@
+name: Audit Kalshi sports state v2
+
+on:
+  push:
+    paths:
+      - ".github/workflows/audit-kalshi-sports-state-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read cloud paper state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          gh release download kalshi-sports-bot-state \
+            --repo dcglobalsolutions90-code/scent-max \
+            --pattern kalshi-sports-state.json \
+            --dir /tmp \
+            --clobber
+
+          python - <<'PY'
+          import json
+          st=json.load(open('/tmp/kalshi-sports-state.json'))
+          print('CASH',st.get('cash'))
+          print('START',st.get('startEquity'))
+          print('LAST_RUN',st.get('lastRun'))
+          print('SUMMARY',json.dumps(st.get('lastSummary'),sort_keys=True))
+          print('OPEN_COUNT',len(st.get('positions') or []))
+          for i,p in enumerate(st.get('positions') or [],1):
+              print('OPEN',i,json.dumps(p,sort_keys=True))
+          print('HISTORY_COUNT',len(st.get('history') or []))
+          for i,h in enumerate(st.get('history') or [],1):
+              print('HIST',i,json.dumps(h,sort_keys=True))
+          PY
