@@ -80,3 +80,16 @@ jobs:
 
           gh release upload "$TAG" "$STATE" --clobber >/dev/null
           echo "state_asset_updated=1"
+
+          sleep 2
+          curl -sS --max-time 20 "https://nightlink-omega.vercel.app/api/kalshi-sports-bot" -o /tmp/readback.json
+          python - <<'PY'
+          import json
+          j=json.load(open('/tmp/readback.json'))
+          if not j.get('ok') or not j.get('state'):
+              raise SystemExit('Nightlink state read-back failed')
+          st=j['state']
+          print('dashboard_readback=OK')
+          print('dashboard_last_run=',st.get('lastRun'))
+          print('dashboard_open_positions=',len(st.get('positions') or []))
+          PY
