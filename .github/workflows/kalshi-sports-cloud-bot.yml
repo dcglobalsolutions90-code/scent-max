@@ -1,0 +1,82 @@
+name: Kalshi sports cloud paper bot
+
+on:
+  push:
+    paths:
+      - ".github/workflows/kalshi-sports-cloud-bot.yml"
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalshi-sports-cloud-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run persistent paper bot and save state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          TAG="kalshi-sports-bot-state"
+          ASSET="kalshi-sports-state.json"
+          STATE="/tmp/$ASSET"
+          RESP="/tmp/kalshi-sports-response.json"
+          ENDPOINT="https://nightlink-omega.vercel.app/api/kalshi-sports-bot"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release download "$TAG" --pattern "$ASSET" --dir /tmp --clobber >/dev/null 2>&1 || true
+          else
+            gh release create "$TAG" --title "Kalshi Sports Paper Bot State" --notes "Persistent paper-only bot state. Updated automatically." >/dev/null
+          fi
+
+          if [ ! -s "$STATE" ]; then
+            cat > "$STATE" <<'JSON'
+          {"cash":500,"startEquity":500,"positions":[],"history":[],"traded":{},"auto":true}
+          JSON
+          fi
+
+          OK=0
+          for i in $(seq 1 12); do
+            CODE=$(curl -sS -o "$RESP" -w "%{http_code}" --max-time 58               -X POST               -H "Content-Type: application/json"               --data-binary @"$STATE"               "$ENDPOINT" || true)
+
+            echo "attempt=$i http=$CODE"
+            if [ "$CODE" = "200" ]; then
+              python - <<'PY'
+          import json
+          p='/tmp/kalshi-sports-response.json'
+          j=json.load(open(p))
+          if not j.get('ok'):
+              raise SystemExit(j.get('error','bot returned ok=false'))
+          state=j.get('state') or {}
+          with open('/tmp/kalshi-sports-state.json','w') as f:
+              json.dump(state,f,separators=(',',':'))
+          print('cash=',round(float(state.get('cash',0)),2))
+          print('open_positions=',len(state.get('positions') or []))
+          print('settled=',len(state.get('history') or []))
+          print('last_run=',state.get('lastRun'))
+          print('summary=',state.get('lastSummary'))
+          PY
+              OK=1
+              break
+            fi
+            sleep 5
+          done
+
+          if [ "$OK" != "1" ]; then
+            echo "Bot did not complete successfully"
+            exit 1
+          fi
+
+          gh release upload "$TAG" "$STATE" --clobber >/dev/null
+          echo "state_asset_updated=1"
