@@ -8,11 +8,12 @@ on:
     paths:
       - ".github/workflows/kalshi-sports-cloud-bot.yml"
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "17 5 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: kalshi-sports-cloud-bot
@@ -47,6 +48,33 @@ jobs:
             cat > "$STATE" <<'JSON'
           {"cash":500,"startEquity":500,"positions":[],"history":[],"traded":{},"auto":true}
           JSON
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            FRESH=$(python - <<'PY'
+          import json,time,datetime
+          try:
+              st=json.load(open('/tmp/kalshi-sports-state.json'))
+              raw=st.get('lastRun')
+              if not raw:
+                  print('0')
+              else:
+                  dt=datetime.datetime.fromisoformat(raw.replace('Z','+00:00'))
+                  age=time.time()-dt.timestamp()
+                  print('1' if age < 900 else '0')
+          except Exception:
+              print('0')
+          PY
+            )
+            if [ "$FRESH" = "1" ]; then
+              echo "healthy_chain_recent_run=1"
+              exit 0
+            fi
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Waiting 5 minutes before next cloud scan..."
+            sleep 300
           fi
 
           OK=0
@@ -96,3 +124,6 @@ jobs:
           print('dashboard_last_run=',st.get('lastRun'))
           print('dashboard_open_positions=',len(st.get('positions') or []))
           PY
+
+          echo "queueing_next_scan=1"
+          gh workflow run kalshi-sports-cloud-bot.yml --ref main
