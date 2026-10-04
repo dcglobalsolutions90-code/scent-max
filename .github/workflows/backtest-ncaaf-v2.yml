@@ -501,19 +501,19 @@ jobs:
                   'avg_ask':round(sum(x['ask'] for x in rows)/len(rows),4)
               }
 
-          print('=== TRAIN PROFIT DIAGNOSTICS ===')
+          print('=== ENTRY-TUNE PROFIT DIAGNOSTICS ===')
           time_windows=[(12,24),(6,12),(2,6),(.5,2),(0,.5)]
           for lo,hi in time_windows:
-              rows=[z for x in tune_paths if (z:=first_entry(x,.56,.00,.12,.95,lo,hi))]
+              rows=[z for x in gate_paths if (z:=first_entry(x,.56,.00,.12,.95,lo,hi))]
               print('TIME_WINDOW',lo,hi,diag_metrics(rows))
           for p in (.56,.60,.64,.68,.72,.76):
-              rows=[z for x in tune_paths if (z:=first_entry(x,p,.00,.12,.95,0,24))]
+              rows=[z for x in gate_paths if (z:=first_entry(x,p,.00,.12,.95,0,24))]
               print('MINPROB',p,diag_metrics(rows))
           for edge in (0,.02,.04,.06,.08,.10,.12,.15,.20):
-              rows=[z for x in tune_paths if (z:=first_entry(x,.56,edge,.12,.95,0,24))]
+              rows=[z for x in gate_paths if (z:=first_entry(x,.56,edge,.12,.95,0,24))]
               print('MINEDGE',edge,diag_metrics(rows))
           for maxask in (.45,.55,.65,.75,.85,.95):
-              rows=[z for x in tune_paths if (z:=first_entry(x,.56,.00,.12,maxask,0,24))]
+              rows=[z for x in gate_paths if (z:=first_entry(x,.56,.00,.12,maxask,0,24))]
               print('MAXASK',maxask,diag_metrics(rows))
 
           gates=[]
