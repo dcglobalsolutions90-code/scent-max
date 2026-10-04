@@ -1,0 +1,37 @@
+name: Count historical NCAAF Kalshi seasons
+
+on:
+  push:
+    paths:
+      - ".github/workflows/count-kalshi-ncaaf-seasons.yml"
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Count historical markets by season
+        run: |
+          python - <<'PY'
+          import json,urllib.request,urllib.parse,re,time,collections
+          B='https://external-api.kalshi.com/trade-api/v2'
+          H={'Accept':'application/json','User-Agent':'Mozilla/5.0'}
+          years=collections.Counter();events=collections.defaultdict(set);cursor=''
+          for page in range(60):
+            q={'series_ticker':'KXNCAAFGAME','limit':1000}
+            if cursor:q['cursor']=cursor
+            u=B+'/historical/markets?'+urllib.parse.urlencode(q)
+            req=urllib.request.Request(u,headers=H)
+            with urllib.request.urlopen(req,timeout=30) as r:j=json.load(r)
+            arr=j.get('markets') or []
+            for m in arr:
+              t=m.get('event_ticker','')
+              mm=re.search(r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)',t)
+              if not mm:continue
+              y=2000+int(mm.group(1))
+              years[y]+=1;events[y].add(t)
+            cursor=j.get('cursor') or ''
+            if not cursor:break
+            time.sleep(.1)
+          print('MARKETS_BY_YEAR',dict(sorted(years.items())))
+          print('EVENTS_BY_YEAR',{y:len(v) for y,v in sorted(events.items())})
+          PY
