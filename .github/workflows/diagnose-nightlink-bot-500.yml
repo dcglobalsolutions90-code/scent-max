@@ -1,0 +1,20 @@
+name: Diagnose Nightlink sports bot 500
+
+on:
+  push:
+    paths:
+      - ".github/workflows/diagnose-nightlink-bot-500.yml"
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call bot endpoint and print error
+        run: |
+          set +e
+          curl -sS -D /tmp/headers.txt -o /tmp/body.txt --max-time 65             -X POST             -H "Content-Type: application/json"             --data '{"cash":500,"startEquity":500,"positions":[],"history":[],"traded":{},"auto":true}'             "https://nightlink-omega.vercel.app/api/kalshi-sports-bot"
+          echo "=== HEADERS ==="
+          cat /tmp/headers.txt
+          echo "=== BODY ==="
+          cat /tmp/body.txt
