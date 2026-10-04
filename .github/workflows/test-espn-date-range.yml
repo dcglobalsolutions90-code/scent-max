@@ -1,0 +1,30 @@
+name: Test ESPN historical date ranges
+
+on:
+  push:
+    paths:
+      - ".github/workflows/test-espn-date-range.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test date range support
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          urls=[
+            'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20250901-20250907&limit=500',
+            'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=20250901-20250914&limit=500',
+            'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard?dates=20251001-20251007&limit=500'
+          ]
+          for u in urls:
+            req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0','Accept':'application/json'})
+            with urllib.request.urlopen(req,timeout=30) as r:j=json.load(r)
+            ev=j.get('events',[])
+            print('URL',u)
+            print('COUNT',len(ev))
+            if ev:
+              print('FIRST',ev[0].get('date'),ev[0].get('name'))
+              print('LAST',ev[-1].get('date'),ev[-1].get('name'))
+          PY
