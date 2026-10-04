@@ -38,15 +38,19 @@ jobs:
           RESP="/tmp/kalshi-sports-response.json"
           ENDPOINT="https://nightlink-omega.vercel.app/api/kalshi-sports-bot"
 
+          EXISTING=0
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release download "$TAG" --pattern "$ASSET" --dir /tmp --clobber >/dev/null 2>&1 || true
+            EXISTING=1
+            gh release download "$TAG" --pattern "$ASSET" --dir /tmp --clobber >/dev/null
+            if [ ! -s "$STATE" ]; then
+              echo "Existing state asset is missing/empty; refusing to reset ledger."
+              exit 1
+            fi
+            cp "$STATE" /tmp/kalshi-sports-state-before.json
           else
             gh release create "$TAG" --title "Kalshi Sports Paper Bot State" --notes "Persistent paper-only bot state. Updated automatically." >/dev/null
-          fi
-
-          if [ ! -s "$STATE" ]; then
             cat > "$STATE" <<'JSON'
-          {"cash":500,"startEquity":500,"positions":[],"history":[],"traded":{},"auto":true}
+          {"stateVersion":2,"ledgerId":"kalshi-sports-paper-ledger-v2","cash":500,"startEquity":500,"positions":[],"history":[],"traded":{},"auto":true}
           JSON
           fi
 
@@ -107,6 +111,27 @@ jobs:
           if [ "$OK" != "1" ]; then
             echo "Bot did not complete successfully"
             exit 1
+          fi
+
+          if [ "$EXISTING" = "1" ]; then
+            python - <<'PY'
+          import json,sys
+          old=json.load(open('/tmp/kalshi-sports-state-before.json'))
+          new=json.load(open('/tmp/kalshi-sports-state.json'))
+          old_hist=len(old.get('history') or [])
+          new_hist=len(new.get('history') or [])
+          old_traded=len(old.get('traded') or {})
+          new_traded=len(new.get('traded') or {})
+          if new_hist < old_hist:
+              raise SystemExit(f'refusing state regression: history {old_hist}->{new_hist}')
+          if new_traded < old_traded:
+              raise SystemExit(f'refusing state regression: traded {old_traded}->{new_traded}')
+          if float(new.get('cash',0)) < -0.01:
+              raise SystemExit('refusing invalid negative cash')
+          print('ledger_monotonicity=OK',old_hist,new_hist,old_traded,new_traded)
+          PY
+            cp /tmp/kalshi-sports-state-before.json /tmp/kalshi-sports-state-prev.json
+            gh release upload "$TAG" /tmp/kalshi-sports-state-prev.json --clobber >/dev/null
           fi
 
           gh release upload "$TAG" "$STATE" --clobber >/dev/null
