@@ -310,15 +310,15 @@ jobs:
           base=(6,.24,.10,.07,.07)
           print('BASE_HOLDOUT',metrics(hold,base))
 
-          # Fetch historical Kalshi entry quotes only for holdout games and selected model.
+          # Fetch historical Kalshi entry quotes for both tune and holdout.
+          # Entry thresholds are selected ONLY on tune; holdout remains untouched.
           def candle_for_market(m,start):
               ticker=m['ticker'];ts=int(start.timestamp())
-              q=urllib.parse.urlencode({'start_ts':ts-3600,'end_ts':ts+4*3600,'period_interval':60})
+              q=urllib.parse.urlencode({'start_ts':ts-3600,'end_ts':ts+6*3600,'period_interval':60})
               u=K+'/historical/markets/'+urllib.parse.quote(ticker,safe='')+'/candlesticks?'+q
               try:j=get(u,30,2)
               except:return None
               cs=sorted(j.get('candlesticks') or [],key=lambda x:x.get('end_period_ts',0))
-              # earliest usable candle at/after intended 24h entry.
               for c in cs:
                   if c.get('end_period_ts',0)<ts:continue
                   try:
@@ -326,59 +326,100 @@ jobs:
                       bid=float((c.get('yes_bid') or {}).get('close'))
                       vol=float(c.get('volume') or 0)
                   except:continue
-                  if 0<ask<1 and 0<=bid<=ask:return {'ask':ask,'bid':bid,'vol':vol,'ts':c.get('end_period_ts')}
+                  if 0<ask<1 and 0<=bid<=ask:
+                      return {'ask':ask,'bid':bid,'vol':vol,'ts':c.get('end_period_ts')}
               return None
 
-          quote_jobs=[]
-          for r in hold:
-              z=predict(r,best[1])
-              if not z:continue
-              x=r['x'];p_home=z[0]
-              # map each Kalshi team market to ESPN home/away by name.
-              for m in x['markets']:
-                  team=m.get('yes_sub_title') or ''
-                  sh=team_sim(team,x['home']);sa=team_sim(team,x['away'])
-                  if max(sh,sa)<.35:continue
-                  prob=p_home if sh>=sa else 1-p_home
-                  quote_jobs.append((r,m,prob,z[2]))
+          def collect_quotes(dataset,param):
+              jobs=[]
+              for r in dataset:
+                  z=predict(r,param)
+                  if not z:continue
+                  x=r['x'];p_home=z[0]
+                  for m in x['markets']:
+                      team=m.get('yes_sub_title') or ''
+                      sh=team_sim(team,x['home']);sa=team_sim(team,x['away'])
+                      if max(sh,sa)<.35:continue
+                      prob=p_home if sh>=sa else 1-p_home
+                      jobs.append((r,m,prob,z[2]))
+              out=[]
+              with ThreadPoolExecutor(max_workers=18) as ex:
+                  fm={ex.submit(candle_for_market,m,r['entry']):(r,m,prob,qual) for r,m,prob,qual in jobs}
+                  for fut in as_completed(fm):
+                      r,m,prob,qual=fm[fut]
+                      qv=fut.result()
+                      if not qv:continue
+                      fee=.07*qv['ask']*(1-qv['ask'])
+                      edge=prob-qv['ask']-fee
+                      spread=qv['ask']-qv['bid']
+                      won=str(m.get('result','')).lower()=='yes'
+                      out.append({
+                          'prob':prob,'ask':qv['ask'],'bid':qv['bid'],'edge':edge,'spread':spread,
+                          'volume':qv['vol'],'quality':qual,'won':won,'event':r['x']['eventTicker'],
+                          'team':m.get('yes_sub_title'),'start':r['x']['start'].isoformat()
+                      })
+              return out
 
-          qresults=[]
-          with ThreadPoolExecutor(max_workers=16) as ex:
-              fm={ex.submit(candle_for_market,m,r['entry']):(r,m,prob,qual) for r,m,prob,qual in quote_jobs}
-              for fut in as_completed(fm):
-                  r,m,prob,qual=fm[fut]
-                  qv=fut.result()
-                  if not qv:continue
-                  fee=.07*qv['ask']*(1-qv['ask'])
-                  edge=prob-qv['ask']-fee
-                  req=.03+max(0,qv['ask']-.75)*.20
-                  spread=qv['ask']-qv['bid']
-                  eligible=(prob>=.60 and qual>=.45 and edge>=req and spread<=.12 and qv['vol']>=20)
-                  won=str(m.get('result','')).lower()=='yes'
-                  qresults.append({'prob':prob,'ask':qv['ask'],'bid':qv['bid'],'edge':edge,'req':req,'eligible':eligible,'won':won,
-                                   'event':r['x']['eventTicker'],'team':m.get('yes_sub_title'),'start':r['x']['start'].isoformat()})
+          tune_quotes=collect_quotes(tune,best[1])
+          hold_quotes=collect_quotes(hold,best[1])
+          print('TUNE_QUOTES',len(tune_quotes),'HOLDOUT_QUOTES',len(hold_quotes))
 
-          bets=[x for x in qresults if x['eligible']]
-          print('HOLDOUT_QUOTES',len(qresults),'ELIGIBLE_BETS',len(bets))
-          if bets:
+          def apply_gate(quotes,gate):
+              minprob,minedge,maxspread,minvol,maxask,favprem=gate
+              bets=[]
+              for x in quotes:
+                  req=minedge+max(0,x['ask']-.75)*favprem
+                  if (x['prob']>=minprob and x['quality']>=.45 and x['edge']>=req
+                      and x['spread']<=maxspread and x['volume']>=minvol and x['ask']<=maxask):
+                      bets.append(x)
+              return bets
+
+          def bet_metrics(bets):
+              if not bets:return {'n':0,'wr':0,'roi':-9,'profit':0,'brier':9,'worst':0}
               wins=sum(x['won'] for x in bets)
-              flat_profit=sum((1-x['ask'] if x['won'] else -x['ask']) for x in bets)
-              flat_roi=flat_profit/sum(x['ask'] for x in bets)
-              print('BET_WIN_RATE',wins/len(bets),'FLAT_CONTRACT_ROI',flat_roi,'FLAT_PROFIT_PER_1_CONTRACT',flat_profit)
-              # calibration among actual bets
+              profit=sum((1-x['ask'] if x['won'] else -x['ask']) for x in bets)
+              stake=sum(x['ask'] for x in bets)
+              roi=profit/stake if stake else -9
               brier=sum((x['prob']-(1 if x['won'] else 0))**2 for x in bets)/len(bets)
-              print('BET_BRIER',brier)
-              for x in bets[:30]:print('BET',json.dumps(x,sort_keys=True))
-          else:
-              print('No eligible holdout bets at 24h quote; model is selective.')
+              return {'n':len(bets),'wr':wins/len(bets),'roi':roi,'profit':profit,'brier':brier}
 
-          # Hard pass criteria: better than 0.25 Brier baseline, reasonable ECE, and no holdout degradation vs base.
+          gates=[]
+          for minprob in (.56,.58,.60,.62,.64):
+            for minedge in (.02,.03,.04,.05,.06,.08):
+              for maxspread in (.06,.08,.10,.12):
+                for minvol in (0,20,100):
+                  for maxask in (.72,.78,.84,.90,.98):
+                    for favprem in (.10,.20,.30):
+                      g=(minprob,minedge,maxspread,minvol,maxask,favprem)
+                      bm=bet_metrics(apply_gate(tune_quotes,g))
+                      if bm['n']<8:continue
+                      # Prefer repeatable profit with enough bets and calibrated probabilities.
+                      score=bm['roi'] + .10*bm['wr'] - .08*bm['brier'] + min(bm['n'],25)*.002
+                      gates.append((score,g,bm))
+          gates.sort(key=lambda x:x[0],reverse=True)
+          if not gates:
+              raise SystemExit('No entry gate produced enough tuning bets')
+          best_gate=gates[0]
+          print('BEST_ENTRY_GATE',best_gate[1])
+          print('TUNE_BET_METRICS',best_gate[2])
+
+          hold_bets=apply_gate(hold_quotes,best_gate[1])
+          hbm=bet_metrics(hold_bets)
+          print('HOLDOUT_BET_METRICS',hbm)
+          for x in hold_bets[:40]:print('HOLDOUT_BET',json.dumps(x,sort_keys=True))
+
           hb,ha,he,hn,hhi=hold_metrics
           bb,ba,be,bn,bhi=metrics(hold,base)
-          passed = hb < .245 and he < .12 and hb <= bb+.01
+          model_pass = hb < .245 and he < .12 and hb <= bb+.01
+          # Trading pass requires more than a one-off result; at least 3 holdout bets,
+          # non-negative holdout ROI, and probabilities that remain reasonably calibrated.
+          trading_pass = hbm['n']>=3 and hbm['roi']>=0 and hbm['brier']<.25
+          passed = model_pass and trading_pass
+          print('MODEL_PASS',model_pass)
+          print('TRADING_PASS',trading_pass)
           print('BACKTEST_PASS',passed)
           if not passed:
-              raise SystemExit('Calibration holdout criteria not met')
+              raise SystemExit('Holdout trading criteria not met')
           PY
 
           python /tmp/backtest.py
