@@ -1,0 +1,366 @@
+name: Backtest calibrated NCAAF model
+
+on:
+  push:
+    paths:
+      - ".github/workflows/backtest-ncaaf-v2.yml"
+  workflow_dispatch:
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Run no-lookahead NCAAF walk-forward backtest
+        run: |
+          cat > /tmp/backtest.py <<'PY'
+          import json, math, re, time, urllib.request, urllib.parse, datetime, statistics
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from collections import defaultdict
+
+          K='https://external-api.kalshi.com/trade-api/v2'
+          E='https://site.api.espn.com/apis/site/v2/sports/football/college-football'
+          UA={'Accept':'application/json','User-Agent':'Mozilla/5.0 NightlinkBacktest/2.1'}
+          MONTH={m:i for i,m in enumerate(['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'],1)}
+
+          def get(url,timeout=30,retries=3):
+              last=None
+              for i in range(retries):
+                  try:
+                      req=urllib.request.Request(url,headers=UA)
+                      with urllib.request.urlopen(req,timeout=timeout) as r:
+                          return json.load(r)
+                  except Exception as e:
+                      last=e; time.sleep(.35*(i+1))
+              raise last
+
+          def norm(s):
+              s=(s or '').lower()
+              repl={'st.':'state','saint':'state','miami (oh)':'miami ohio','miami (fl)':'miami florida',
+                    'ole miss':'mississippi','uconn':'connecticut','utsa':'texas san antonio',
+                    'utep':'texas el paso','ul monroe':'louisiana monroe','ulm':'louisiana monroe',
+                    'app state':'appalachian state','nc state':'north carolina state'}
+              for a,b in repl.items(): s=s.replace(a,b)
+              return re.sub(r'[^a-z0-9]+',' ',s).strip()
+
+          def toks(s):
+              stop={'at','vs','the','university','college','football','wins','winner'}
+              return [x for x in norm(s).split() if len(x)>1 and x not in stop]
+
+          def sim(a,b):
+              A=set(toks(a));B=set(toks(b))
+              return len(A&B)/max(1,max(len(A),len(B)))
+
+          def parse_event_date(ticker):
+              m=re.search(r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})',ticker)
+              if not m:return None
+              return datetime.date(2000+int(m.group(1)),MONTH[m.group(2)],int(m.group(3)))
+
+          def hist_markets():
+              out=[];cursor=''
+              for page in range(30):
+                  q={'series_ticker':'KXNCAAFGAME','limit':1000}
+                  if cursor:q['cursor']=cursor
+                  u=K+'/historical/markets?'+urllib.parse.urlencode(q)
+                  j=get(u)
+                  arr=j.get('markets',[])
+                  out.extend(arr)
+                  # stop after we've paged well past 2025
+                  years=[parse_event_date(m.get('event_ticker','')) for m in arr]
+                  years=[d.year for d in years if d]
+                  if years and max(years)<2025:break
+                  cursor=j.get('cursor') or ''
+                  if not cursor:break
+              return out
+
+          markets=hist_markets()
+          by_event=defaultdict(list)
+          for m in markets:
+              d=parse_event_date(m.get('event_ticker',''))
+              if not d or d.year!=2025:continue
+              if str(m.get('result','')).lower() not in ('yes','no'):continue
+              if not m.get('yes_sub_title'):continue
+              by_event[m['event_ticker']].append(m)
+
+          raw_events=[]
+          for et,ms in by_event.items():
+              # game winner event should expose both team contracts
+              names={norm(m.get('yes_sub_title')) for m in ms if m.get('yes_sub_title')}
+              if len(names)<2:continue
+              d=parse_event_date(et)
+              raw_events.append((d,et,ms))
+          raw_events.sort(key=lambda x:x[0])
+
+          # keep regular-season-heavy sample, chronological, to cap API work
+          raw_events=[x for x in raw_events if datetime.date(2025,8,20)<=x[0]<=datetime.date(2025,12,6)]
+          # evenly sample at most 180 unique games while preserving chronology
+          if len(raw_events)>180:
+              step=len(raw_events)/180
+              raw_events=[raw_events[min(len(raw_events)-1,int(i*step))] for i in range(180)]
+
+          print('historical_events_candidate=',len(raw_events))
+
+          scoreboard_cache={}
+          def scoreboard(d):
+              key=d.strftime('%Y%m%d')
+              if key not in scoreboard_cache:
+                  u=E+'/scoreboard?dates='+key+'&limit=500'
+                  scoreboard_cache[key]=get(u).get('events',[])
+              return scoreboard_cache[key]
+
+          matched=[]
+          for d,et,ms in raw_events:
+              teams=list(dict.fromkeys([m.get('yes_sub_title') for m in ms if m.get('yes_sub_title')]))
+              if len(teams)<2:continue
+              best=None
+              for ev in scoreboard(d):
+                  name=ev.get('name') or ev.get('shortName') or ''
+                  s1=sim(teams[0],name);s2=sim(teams[1],name)
+                  score=min(s1,s2)+.5*max(s1,s2)
+                  if best is None or score>best[0]:best=(score,ev)
+              if not best or best[0]<.65:continue
+              ev=best[1];comp=(ev.get('competitions') or [{}])[0]
+              cs=comp.get('competitors') or []
+              if len(cs)<2:continue
+              home=next((c for c in cs if c.get('homeAway')=='home'),cs[0])
+              away=next((c for c in cs if c.get('homeAway')=='away'),cs[1])
+              try:
+                  hs=float(home.get('score'));as_=float(away.get('score'))
+              except: continue
+              start=datetime.datetime.fromisoformat(ev['date'].replace('Z','+00:00'))
+              matched.append({
+                  'date':d,'eventTicker':et,'markets':ms,'espn':ev,'comp':comp,
+                  'home':home,'away':away,'home_score':hs,'away_score':as_,
+                  'start':start,'winner_id':str(home['id']) if hs>as_ else str(away['id']) if as_>hs else None
+              })
+
+          print('matched_events=',len(matched))
+          if len(matched)<60:
+              raise SystemExit('Not enough matched historical games')
+
+          # Fetch team schedules for 2025 and 2024 for all teams in sample.
+          ids=sorted({str(x['home']['id']) for x in matched}|{str(x['away']['id']) for x in matched})
+          sched={}
+          def fetch_sched(args):
+              tid,season=args
+              u=f'{E}/teams/{tid}/schedule?season={season}'
+              j=get(u,30,2)
+              # merge regular-season endpoint in case ESPN default omits rows
+              try:
+                  r=get(u+'&seasontype=2',30,2)
+                  ev=(j.get('events') or [])+(r.get('events') or [])
+              except:
+                  ev=j.get('events') or []
+              seen=set();res=[]
+              for e in ev:
+                  k=e.get('id') or (str(e.get('date'))+str(e.get('name')))
+                  if k in seen:continue
+                  seen.add(k);res.append(e)
+              return tid,season,res
+
+          with ThreadPoolExecutor(max_workers=18) as ex:
+              futs=[ex.submit(fetch_sched,(tid,season)) for tid in ids for season in (2024,2025)]
+              for f in as_completed(futs):
+                  tid,season,ev=f.result();sched[(tid,season)]=ev
+
+          def rows(team_id,season,cutoff):
+              out=[]
+              for e in sched.get((str(team_id),season),[]):
+                  try: dt=datetime.datetime.fromisoformat(e['date'].replace('Z','+00:00'))
+                  except: continue
+                  if dt>=cutoff:continue
+                  comp=(e.get('competitions') or [{}])[0]
+                  # strict completion gate = no future/live rows
+                  if not comp.get('status',e.get('status',{})).get('type',{}).get('completed',False):
+                      continue
+                  cs=comp.get('competitors') or []
+                  us=next((c for c in cs if str(c.get('id'))==str(team_id)),None)
+                  them=next((c for c in cs if str(c.get('id'))!=str(team_id)),None)
+                  if not us or not them:continue
+                  try: pf=float(us.get('score'));pa=float(them.get('score'))
+                  except: continue
+                  out.append({'dt':dt,'pf':pf,'pa':pa,'win':1 if pf>pa else 0 if pf<pa else .5,'venue':us.get('homeAway')})
+              out.sort(key=lambda x:x['dt'],reverse=True)
+              return out
+
+          def summary(r,limit=None):
+              z=r[:limit] if limit else r
+              if not z:return {'games':0,'win':.5,'margin':0}
+              return {'games':len(z),'win':sum(x['win'] for x in z)/len(z),'margin':sum(x['pf']-x['pa'] for x in z)/len(z)}
+
+          def venue(r,v):
+              return summary([x for x in r if x['venue']==v])
+
+          def shrunk_pct(stat,prior=.5,pseudo=6):
+              g=stat['games'];return (stat['win']*g+prior*pseudo)/(g+pseudo)
+
+          def team_stats(tid,cutoff,prior_pseudo):
+              cur_rows=rows(tid,2025,cutoff);prior_rows=rows(tid,2024,cutoff)
+              cur=summary(cur_rows);recent=summary(cur_rows,6);pr=summary(prior_rows)
+              ven_home=venue(cur_rows,'home');ven_away=venue(cur_rows,'away')
+              prior_pct=shrunk_pct(pr,.5,6)
+              current_pct=shrunk_pct(cur,prior_pct,prior_pseudo)
+              recent_pct=shrunk_pct(recent,current_pct,4)
+              cur_margin=cur['margin']*(cur['games']/(cur['games']+prior_pseudo)) if cur['games'] else 0
+              recent_margin=recent['margin']*(recent['games']/(recent['games']+5)) if recent['games'] else 0
+              return {'rows':cur_rows,'cur':cur,'recent':recent,'prior':pr,'priorPct':prior_pct,
+                      'currentPct':current_pct,'recentPct':recent_pct,'curMargin':cur_margin,
+                      'recentMargin':recent_margin,'homePct':shrunk_pct(ven_home,current_pct,4),
+                      'awayPct':shrunk_pct(ven_away,current_pct,4)}
+
+          def rank(c):
+              try:
+                  n=int((c.get('curatedRank') or {}).get('current') or 99)
+                  return n if n>0 else 99
+              except:return 99
+
+          PARAMS=[]
+          for prior_pseudo in (4,6,8,10):
+            for wcur in (.18,.22,.26,.30):
+              for wprior in (.06,.10,.14):
+                for wrecent in (.03,.05,.07):
+                  for wmargin in (.04,.06,.08):
+                    PARAMS.append((prior_pseudo,wcur,wprior,wrecent,wmargin))
+
+          # Precompute raw features at strict entry time = 24h before kickoff.
+          rows_all=[]
+          for x in matched:
+              entry=x['start']-datetime.timedelta(hours=24)
+              Hbase={};Abase={}
+              # Store sufficient summaries for each prior-pseudo candidate lazily below.
+              rows_all.append({'x':x,'entry':entry})
+
+          def predict(row,param):
+              prior_pseudo,wcur,wprior,wrecent,wmargin=param
+              x=row['x'];entry=row['entry']
+              H=team_stats(x['home']['id'],entry,prior_pseudo)
+              A=team_stats(x['away']['id'],entry,prior_pseudo)
+              cg=min(H['cur']['games'],A['cur']['games']);pg=min(H['prior']['games'],A['prior']['games'])
+              if cg<1 and pg<4:return None
+              p=.5
+              p+=wcur*(H['currentPct']-A['currentPct'])
+              p+=wprior*(H['priorPct']-A['priorPct'])
+              p+=wrecent*(H['recentPct']-A['recentPct'])
+              p+=wmargin*max(-1.5,min(1.5,(H['curMargin']-A['curMargin'])/14))
+              p+=.025*max(-1.5,min(1.5,(H['recentMargin']-A['recentMargin'])/14))
+              p+=.035*(H['homePct']-A['awayPct'])
+              p+=.025
+              hr=rank(x['home']);ar=rank(x['away'])
+              hs=(26-hr)/25 if hr<=25 else 0;as_=(26-ar)/25 if ar<=25 else 0
+              p+=.045*(hs-as_)
+              q=max(.25,min(1,(.25+.50*min(1,cg/8)+.25*min(1,pg/12))))
+              cap=.82+(.87-.82)*q
+              p=max(1-cap,min(cap,p))
+              y=1 if x['winner_id']==str(x['home']['id']) else 0
+              return p,y,q,H,A
+
+          # Chronological split: first 75% tuning, last 25% untouched holdout.
+          rows_all.sort(key=lambda r:r['x']['start'])
+          cut=int(len(rows_all)*.75)
+          tune=rows_all[:cut];hold=rows_all[cut:]
+
+          def metrics(dataset,param):
+              pred=[]
+              for r in dataset:
+                  z=predict(r,param)
+                  if z:pred.append(z[:3])
+              if not pred:return (9,0,0,0,0)
+              brier=sum((p-y)**2 for p,y,q in pred)/len(pred)
+              acc=sum((p>=.5)==bool(y) for p,y,q in pred)/len(pred)
+              # calibration error in broad buckets
+              bins=defaultdict(list)
+              for p,y,q in pred: bins[min(9,int(p*10))].append((p,y))
+              ece=sum(len(v)/len(pred)*abs(sum(p for p,y in v)/len(v)-sum(y for p,y in v)/len(v)) for v in bins.values())
+              hi=[(p,y) for p,y,q in pred if max(p,1-p)>=.70]
+              hiacc=sum((p>=.5)==bool(y) for p,y in hi)/len(hi) if hi else 0
+              return brier,acc,ece,len(pred),hiacc
+
+          scored=[]
+          for pset in PARAMS:
+              m=metrics(tune,pset)
+              # objective favors calibration first, then accuracy.
+              obj=m[0]+.45*m[2]-.05*m[1]
+              scored.append((obj,pset,m))
+          scored.sort(key=lambda x:x[0])
+          best=scored[0]
+          print('BEST_PARAMS',best[1])
+          print('TUNE_METRICS',best[2])
+          hold_metrics=metrics(hold,best[1])
+          print('HOLDOUT_METRICS',hold_metrics)
+
+          # Compare current production-like params.
+          base=(6,.24,.10,.07,.07)
+          print('BASE_HOLDOUT',metrics(hold,base))
+
+          # Fetch historical Kalshi entry quotes only for holdout games and selected model.
+          def candle_for_market(m,start):
+              ticker=m['ticker'];ts=int(start.timestamp())
+              q=urllib.parse.urlencode({'start_ts':ts-3600,'end_ts':ts+4*3600,'period_interval':60})
+              u=K+'/historical/markets/'+urllib.parse.quote(ticker,safe='')+'/candlesticks?'+q
+              try:j=get(u,30,2)
+              except:return None
+              cs=sorted(j.get('candlesticks') or [],key=lambda x:x.get('end_period_ts',0))
+              # earliest usable candle at/after intended 24h entry.
+              for c in cs:
+                  if c.get('end_period_ts',0)<ts:continue
+                  try:
+                      ask=float((c.get('yes_ask') or {}).get('close'))
+                      bid=float((c.get('yes_bid') or {}).get('close'))
+                      vol=float(c.get('volume') or 0)
+                  except:continue
+                  if 0<ask<1 and 0<=bid<=ask:return {'ask':ask,'bid':bid,'vol':vol,'ts':c.get('end_period_ts')}
+              return None
+
+          quote_jobs=[]
+          for r in hold:
+              z=predict(r,best[1])
+              if not z:continue
+              x=r['x'];p_home=z[0]
+              # map each Kalshi team market to ESPN home/away by name.
+              for m in x['markets']:
+                  team=m.get('yes_sub_title') or ''
+                  sh=sim(team,x['home']['team']['displayName']);sa=sim(team,x['away']['team']['displayName'])
+                  if max(sh,sa)<.25:continue
+                  prob=p_home if sh>=sa else 1-p_home
+                  quote_jobs.append((r,m,prob,z[2]))
+
+          qresults=[]
+          with ThreadPoolExecutor(max_workers=16) as ex:
+              fm={ex.submit(candle_for_market,m,r['entry']):(r,m,prob,qual) for r,m,prob,qual in quote_jobs}
+              for fut in as_completed(fm):
+                  r,m,prob,qual=fm[fut]
+                  qv=fut.result()
+                  if not qv:continue
+                  fee=.07*qv['ask']*(1-qv['ask'])
+                  edge=prob-qv['ask']-fee
+                  req=.03+max(0,qv['ask']-.75)*.20
+                  spread=qv['ask']-qv['bid']
+                  eligible=(prob>=.60 and qual>=.45 and edge>=req and spread<=.12 and qv['vol']>=20)
+                  won=str(m.get('result','')).lower()=='yes'
+                  qresults.append({'prob':prob,'ask':qv['ask'],'bid':qv['bid'],'edge':edge,'req':req,'eligible':eligible,'won':won,
+                                   'event':r['x']['eventTicker'],'team':m.get('yes_sub_title'),'start':r['x']['start'].isoformat()})
+
+          bets=[x for x in qresults if x['eligible']]
+          print('HOLDOUT_QUOTES',len(qresults),'ELIGIBLE_BETS',len(bets))
+          if bets:
+              wins=sum(x['won'] for x in bets)
+              flat_profit=sum((1-x['ask'] if x['won'] else -x['ask']) for x in bets)
+              flat_roi=flat_profit/sum(x['ask'] for x in bets)
+              print('BET_WIN_RATE',wins/len(bets),'FLAT_CONTRACT_ROI',flat_roi,'FLAT_PROFIT_PER_1_CONTRACT',flat_profit)
+              # calibration among actual bets
+              brier=sum((x['prob']-(1 if x['won'] else 0))**2 for x in bets)/len(bets)
+              print('BET_BRIER',brier)
+              for x in bets[:30]:print('BET',json.dumps(x,sort_keys=True))
+          else:
+              print('No eligible holdout bets at 24h quote; model is selective.')
+
+          # Hard pass criteria: better than 0.25 Brier baseline, reasonable ECE, and no holdout degradation vs base.
+          hb,ha,he,hn,hhi=hold_metrics
+          bb,ba,be,bn,bhi=metrics(hold,base)
+          passed = hb < .245 and he < .12 and hb <= bb+.01
+          print('BACKTEST_PASS',passed)
+          if not passed:
+              raise SystemExit('Calibration holdout criteria not met')
+          PY
+
+          python /tmp/backtest.py
