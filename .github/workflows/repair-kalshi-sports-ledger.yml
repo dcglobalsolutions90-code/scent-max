@@ -1,0 +1,103 @@
+name: Repair Kalshi sports paper ledger
+
+on:
+  push:
+    paths:
+      - ".github/workflows/repair-kalshi-sports-ledger.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Restore verified first-batch outcomes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="kalshi-sports-bot-state"
+          ASSET="kalshi-sports-state.json"
+          gh release download "$TAG" --pattern "$ASSET" --dir /tmp --clobber
+          cp /tmp/$ASSET /tmp/kalshi-sports-state-before-repair.json
+
+          python - <<'PY'
+          import json,urllib.request,datetime,math
+          path='/tmp/kalshi-sports-state.json'
+          st=json.load(open(path))
+          known=[
+            {
+              'ticker':'KXNCAAFGAME-26OCT03BGSUMOH-MOH','eventTicker':'KXNCAAFGAME-26OCT03BGSUMOH',
+              'eventTitle':'Bowling Green vs Miami (OH)','title':'Miami (OH) wins','sideLabel':'Miami (OH)',
+              'sport':'Football','count':133,'entry':.83,'independentProb':.89,'expected':'no'
+            },
+            {
+              'ticker':'KXNCAAFGAME-26OCT03ODUGAST-GAST','eventTicker':'KXNCAAFGAME-26OCT03ODUGAST',
+              'eventTitle':'Old Dominion vs Georgia St.','title':'Georgia St. wins','sideLabel':'Georgia St.',
+              'sport':'Football','count':216,'entry':.56,'independentProb':.89,'expected':'yes'
+            },
+            {
+              'ticker':'KXNCAAFGAME-26OCT03MSUWIS-WIS','eventTicker':'KXNCAAFGAME-26OCT03MSUWIS',
+              'eventTitle':'Michigan St. vs Wisconsin','title':'Wisconsin wins','sideLabel':'Wisconsin',
+              'sport':'Football','count':139,'entry':.77,'independentProb':.81,'expected':'yes'
+            }
+          ]
+          existing={h.get('ticker') for h in st.get('history') or []}
+          open_tickers={p.get('ticker') for p in st.get('positions') or []}
+          repairs=st.setdefault('ledgerRepairs',[])
+          if 'restore-first-batch-v1' in repairs:
+              print('repair_already_applied=1')
+          else:
+              delta=0.0
+              restored=[]
+              for k in known:
+                  if k['ticker'] in existing:
+                      continue
+                  if k['ticker'] in open_tickers:
+                      raise SystemExit('Cannot restore a ticker that is still open: '+k['ticker'])
+                  u='https://external-api.kalshi.com/trade-api/v2/markets/'+k['ticker']
+                  req=urllib.request.Request(u,headers={'Accept':'application/json','User-Agent':'Mozilla/5.0'})
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      m=json.load(r).get('market',{})
+                  result=str(m.get('result') or '').lower()
+                  if result!=k['expected']:
+                      raise SystemExit(f"Verified result mismatch for {k['ticker']}: {result}")
+                  raw=.07*k['count']*k['entry']*(1-k['entry'])
+                  fee=math.ceil(raw*10000)/10000
+                  cost=k['count']*k['entry']
+                  payout=k['count'] if result=='yes' else 0
+                  pnl=payout-cost-fee
+                  settled_raw=m.get('settlement_ts')
+                  try:
+                      settled=int(datetime.datetime.fromisoformat(settled_raw.replace('Z','+00:00')).timestamp()*1000)
+                  except:
+                      settled=int(datetime.datetime.now(datetime.timezone.utc).timestamp()*1000)
+                  rec={
+                    **k,'side':'YES','cost':cost,'fee':fee,'exit':1 if result=='yes' else 0,
+                    'pnl':pnl,'correct':result=='yes','settled':settled,
+                    'analysisSource':'legacy v1 independent stats','modelVersion':'legacy-v1-restored',
+                    'restored':True
+                  }
+                  rec.pop('expected',None)
+                  st.setdefault('history',[]).append(rec)
+                  st.setdefault('traded',{})[k['ticker']]={'side':'YES','time':settled,'modelVersion':'legacy-v1-restored'}
+                  delta+=pnl
+                  restored.append((k['ticker'],pnl))
+              st['cash']=float(st.get('cash',0))+delta
+              st['history'].sort(key=lambda x:x.get('settled',0),reverse=True)
+              repairs.append('restore-first-batch-v1')
+              st['stateVersion']=2
+              st['ledgerId']=st.get('ledgerId') or 'kalshi-sports-paper-ledger-v2'
+              print('restored=',restored)
+              print('cash_delta=',round(delta,4))
+              print('cash_after=',round(st['cash'],4))
+              print('history_after=',len(st['history']))
+              with open(path,'w') as f:json.dump(st,f,separators=(',',':'))
+          PY
+
+          cp /tmp/kalshi-sports-state-before-repair.json /tmp/kalshi-sports-state-pre-repair.json
+          gh release upload "$TAG" /tmp/kalshi-sports-state-pre-repair.json --clobber
+          gh release upload "$TAG" /tmp/$ASSET --clobber
