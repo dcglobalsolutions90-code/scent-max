@@ -1,0 +1,49 @@
+name: Debug 2025 Kalshi ESPN matching
+
+on:
+  push:
+    paths:
+      - ".github/workflows/debug-2025-match.yml"
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print sample mappings
+        run: |
+          python - <<'PY'
+          import json,re,urllib.request,urllib.parse,datetime
+          from collections import defaultdict
+          K='https://external-api.kalshi.com/trade-api/v2'
+          E='https://site.api.espn.com/apis/site/v2/sports/football/college-football'
+          H={'Accept':'application/json','User-Agent':'Mozilla/5.0'}
+          MONTH={m:i for i,m in enumerate(['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'],1)}
+          def get(u):
+            with urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=30) as r:return json.load(r)
+          def dparse(t):
+            m=re.search(r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})',t)
+            return datetime.date(2000+int(m.group(1)),MONTH[m.group(2)],int(m.group(3))) if m else None
+          def norm(s):return re.sub(r'[^a-z0-9]+',' ',(s or '').lower()).strip()
+          cur='';events=defaultdict(list)
+          for page in range(8):
+            q={'series_ticker':'KXNCAAFGAME','limit':1000}
+            if cur:q['cursor']=cur
+            j=get(K+'/historical/markets?'+urllib.parse.urlencode(q))
+            for m in j.get('markets',[]):
+              d=dparse(m.get('event_ticker',''))
+              if d and d.year==2025:events[m['event_ticker']].append(m)
+            cur=j.get('cursor') or ''
+            if not cur:break
+          n=0
+          for et,ms in sorted(events.items()):
+            d=dparse(et)
+            if not (datetime.date(2025,8,20)<=d<=datetime.date(2025,12,6)):continue
+            names=list(dict.fromkeys([m.get('yes_sub_title') for m in ms if m.get('yes_sub_title')]))
+            if len(names)<2:continue
+            sb=get(E+'/scoreboard?dates='+d.strftime('%Y%m%d')+'&limit=500').get('events',[])
+            print('\nKALSHI',et,names,'DATE',d)
+            for e in sb[:8]:
+              print(' ESPN',e.get('name'))
+            n+=1
+            if n>=8:break
+          PY
