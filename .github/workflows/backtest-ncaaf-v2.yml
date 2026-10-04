@@ -466,8 +466,9 @@ jobs:
           def bet_metrics(bets):
               if not bets:return {'n':0,'wr':0,'roi':-9,'profit':0,'brier':9}
               wins=sum(x['won'] for x in bets)
-              profit=sum((1-x['ask'] if x['won'] else -x['ask']) for x in bets)
-              stake=sum(x['ask'] for x in bets)
+              def fee(x): return .07*x['ask']*(1-x['ask'])
+              profit=sum((1-x['ask']-fee(x) if x['won'] else -x['ask']-fee(x)) for x in bets)
+              stake=sum(x['ask']+fee(x) for x in bets)
               roi=profit/stake if stake else -9
               brier=sum((x['prob']-(1 if x['won'] else 0))**2 for x in bets)/len(bets)
               return {'n':len(bets),'wr':wins/len(bets),'roi':roi,'profit':profit,'brier':brier}
@@ -491,8 +492,9 @@ jobs:
           def diag_metrics(rows):
               if not rows:return {'n':0,'wr':0,'roi':None,'avg_edge':None,'avg_ask':None}
               wins=sum(x['won'] for x in rows)
-              stake=sum(x['ask'] for x in rows)
-              profit=sum((1-x['ask'] if x['won'] else -x['ask']) for x in rows)
+              def fee(x): return .07*x['ask']*(1-x['ask'])
+              stake=sum(x['ask']+fee(x) for x in rows)
+              profit=sum((1-x['ask']-fee(x) if x['won'] else -x['ask']-fee(x)) for x in rows)
               return {
                   'n':len(rows),
                   'wr':round(wins/len(rows),4),
@@ -517,18 +519,18 @@ jobs:
               print('MAXASK',maxask,diag_metrics(rows))
 
           gates=[]
-          for minprob in (.56,.58,.60,.62,.64,.66):
-            for minedge in (.02,.03,.04,.05,.06,.08,.10):
-              for maxspread in (.04,.06,.08,.10,.12):
-                for maxask in (.68,.72,.76,.80,.84,.90):
-                  for favprem in (.10,.20,.30):
+          for minprob in (.56,.58,.60,.62,.64):
+            for minedge in (0,.005,.01,.015,.02,.03,.04,.05,.06,.08):
+              for maxspread in (.06,.08,.10,.12):
+                for maxask in (.55,.60,.65,.70,.75,.80,.85):
+                  for favprem in (0,.10,.20):
                       g=(minprob,minedge,maxspread,maxask,favprem)
                       bm=bet_metrics(apply_gate(gate_paths,g))
-                      if bm['n']<8:continue
-                      # The gate must work on training data before holdout is revealed.
+                      if bm['n']<5:continue
+                      # The gate must work after estimated fees before holdout is revealed.
                       if bm['roi']<=0 or bm['brier']>=.25:continue
-                      # Reward ROI/calibration while preferring rules supported by more bets.
-                      score=bm['roi'] + .08*bm['wr'] - .10*bm['brier'] + min(bm['n'],40)*.002
+                      # Penalize tiny samples; favor simple broad profitable gates.
+                      score=bm['roi'] + .06*bm['wr'] - .12*bm['brier'] + min(bm['n'],30)*.003
                       gates.append((score,g,bm))
           gates.sort(key=lambda x:x[0],reverse=True)
           if not gates:
@@ -546,7 +548,7 @@ jobs:
           model_pass = hb < .245 and he < .12 and hb <= bb+.01
           # Trading pass requires more than a one-off result; at least 3 holdout bets,
           # non-negative holdout ROI, and probabilities that remain reasonably calibrated.
-          trading_pass = hbm['n']>=5 and hbm['roi']>0 and hbm['brier']<.25
+          trading_pass = hbm['n']>=8 and hbm['roi']>0 and hbm['brier']<.25
           passed = model_pass and trading_pass
           print('MODEL_PASS',model_pass)
           print('TRADING_PASS',trading_pass)
