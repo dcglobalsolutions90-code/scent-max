@@ -108,10 +108,10 @@ jobs:
 
           # keep regular-season-heavy sample, chronological, to cap API work
           raw_events=[x for x in raw_events if datetime.date(2025,8,20)<=x[0]<=datetime.date(2025,12,6)]
-          # evenly sample at most 180 unique games while preserving chronology
-          if len(raw_events)>180:
-              step=len(raw_events)/180
-              raw_events=[raw_events[min(len(raw_events)-1,int(i*step))] for i in range(180)]
+          # evenly sample up to 400 unique games while preserving chronology
+          if len(raw_events)>400:
+              step=len(raw_events)/400
+              raw_events=[raw_events[min(len(raw_events)-1,int(i*step))] for i in range(400)]
 
           print('historical_events_candidate=',len(raw_events))
 
@@ -314,7 +314,8 @@ jobs:
           # Entry thresholds are selected ONLY on tune; holdout remains untouched.
           def candle_for_market(m,start):
               ticker=m['ticker'];ts=int(start.timestamp())
-              q=urllib.parse.urlencode({'start_ts':ts-3600,'end_ts':ts+6*3600,'period_interval':60})
+              # Search from 24h-before kickoff through the full pregame window.
+              q=urllib.parse.urlencode({'start_ts':ts-3600,'end_ts':ts+23*3600,'period_interval':60})
               u=K+'/historical/markets/'+urllib.parse.quote(ticker,safe='')+'/candlesticks?'+q
               try:j=get(u,30,2)
               except:return None
@@ -392,7 +393,7 @@ jobs:
                     for favprem in (.10,.20,.30):
                       g=(minprob,minedge,maxspread,minvol,maxask,favprem)
                       bm=bet_metrics(apply_gate(tune_quotes,g))
-                      if bm['n']<8:continue
+                      if bm['n']<10:continue
                       # Prefer repeatable profit with enough bets and calibrated probabilities.
                       score=bm['roi'] + .10*bm['wr'] - .08*bm['brier'] + min(bm['n'],25)*.002
                       gates.append((score,g,bm))
