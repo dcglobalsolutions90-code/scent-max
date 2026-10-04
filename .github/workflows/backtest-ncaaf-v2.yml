@@ -232,13 +232,54 @@ jobs:
                   return n if n>0 else 99
               except:return 99
 
+          # Build a no-lookahead opponent-strength Elo timeline from deduplicated
+          # 2024-25 completed games found in team schedules.
+          all_games={}
+          for (tid,season),evs in sched.items():
+              for e in evs:
+                  try: dt=datetime.datetime.fromisoformat(e['date'].replace('Z','+00:00'))
+                  except: continue
+                  comp=(e.get('competitions') or [{}])[0]
+                  completed=bool((e.get('status') or {}).get('type',{}).get('completed',False) or (comp.get('status') or {}).get('type',{}).get('completed',False))
+                  if not completed:continue
+                  cs=comp.get('competitors') or []
+                  if len(cs)!=2:continue
+                  a,b=cs
+                  sa=score_value(a);sb=score_value(b)
+                  if sa is None or sb is None or sa==sb:continue
+                  gid=e.get('id') or f"{dt.isoformat()}-{a.get('id')}-{b.get('id')}"
+                  all_games[gid]={
+                      'dt':dt,'a':str(a.get('id')),'b':str(b.get('id')),
+                      'a_home':a.get('homeAway')=='home','b_home':b.get('homeAway')=='home',
+                      'a_win':1 if sa>sb else 0
+                  }
+          elo_games=sorted(all_games.values(),key=lambda x:x['dt'])
+          print('ELO_HISTORY_GAMES',len(elo_games))
+
+          elo_cache={}
+          def elo_at(cutoff,k=24,home_pts=45):
+              key=(int(cutoff.timestamp())//3600,k,home_pts)
+              if key in elo_cache:return elo_cache[key]
+              r=defaultdict(lambda:1500.0)
+              for g in elo_games:
+                  if g['dt']>=cutoff:break
+                  ra=r[g['a']];rb=r[g['b']]
+                  adj_a=ra+(home_pts if g['a_home'] else 0)
+                  adj_b=rb+(home_pts if g['b_home'] else 0)
+                  ea=1/(1+10**((adj_b-adj_a)/400))
+                  delta=k*(g['a_win']-ea)
+                  r[g['a']]=ra+delta;r[g['b']]=rb-delta
+              elo_cache[key]=dict(r)
+              return elo_cache[key]
+
           PARAMS=[]
           for prior_pseudo in (4,6,8,10):
             for wcur in (.18,.22,.26,.30):
               for wprior in (.06,.10,.14):
                 for wrecent in (.03,.05,.07):
                   for wmargin in (.04,.06,.08):
-                    PARAMS.append((prior_pseudo,wcur,wprior,wrecent,wmargin))
+                    for elo_blend in (.15,.25,.35,.45):
+                      PARAMS.append((prior_pseudo,wcur,wprior,wrecent,wmargin,elo_blend))
 
           # Precompute raw features at strict entry time = 24h before kickoff.
           rows_all=[]
@@ -249,7 +290,7 @@ jobs:
               rows_all.append({'x':x,'entry':entry})
 
           def predict(row,param):
-              prior_pseudo,wcur,wprior,wrecent,wmargin=param
+              prior_pseudo,wcur,wprior,wrecent,wmargin,elo_blend=param
               x=row['x'];entry=row['entry']
               H=team_stats(x['home']['id'],entry,prior_pseudo)
               A=team_stats(x['away']['id'],entry,prior_pseudo)
@@ -266,6 +307,13 @@ jobs:
               hr=rank(x['home']);ar=rank(x['away'])
               hs=(26-hr)/25 if hr<=25 else 0;as_=(26-ar)/25 if ar<=25 else 0
               p+=.045*(hs-as_)
+
+              ratings=elo_at(entry)
+              rh=ratings.get(str(x['home']['id']),1500.0)
+              ra=ratings.get(str(x['away']['id']),1500.0)
+              elo_home=1/(1+10**(((ra)-(rh+45))/400))
+              p=p*(1-elo_blend)+elo_home*elo_blend
+
               q=max(.25,min(1,(.25+.50*min(1,cg/8)+.25*min(1,pg/12))))
               cap=.82+(.87-.82)*q
               p=max(1-cap,min(cap,p))
@@ -307,7 +355,7 @@ jobs:
           print('HOLDOUT_METRICS',hold_metrics)
 
           # Compare current production-like params.
-          base=(6,.24,.10,.07,.07)
+          base=(6,.24,.10,.07,.07,0)
           print('BASE_HOLDOUT',metrics(hold,base))
 
           # Replay the full 24-hour pregame Kalshi price path.
