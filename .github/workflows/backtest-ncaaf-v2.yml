@@ -51,6 +51,14 @@ jobs:
               A=set(toks(a));B=set(toks(b))
               return len(A&B)/max(1,max(len(A),len(B)))
 
+          def team_sim(label,competitor):
+              team=(competitor or {}).get('team') or {}
+              vals=[
+                  team.get('displayName'),team.get('shortDisplayName'),team.get('location'),
+                  team.get('name'),team.get('abbreviation')
+              ]
+              return max([sim(label,v) for v in vals if v] or [0])
+
           def parse_event_date(ticker):
               m=re.search(r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})',ticker)
               if not m:return None
@@ -114,11 +122,14 @@ jobs:
               if len(teams)<2:continue
               best=None
               for ev in scoreboard(d):
-                  name=ev.get('name') or ev.get('shortName') or ''
-                  s1=sim(teams[0],name);s2=sim(teams[1],name)
-                  score=min(s1,s2)+.5*max(s1,s2)
+                  comp=(ev.get('competitions') or [{}])[0]
+                  cs=comp.get('competitors') or []
+                  if len(cs)<2:continue
+                  a11=team_sim(teams[0],cs[0]);a12=team_sim(teams[0],cs[1])
+                  a21=team_sim(teams[1],cs[0]);a22=team_sim(teams[1],cs[1])
+                  score=max((a11+a22)/2,(a12+a21)/2)
                   if best is None or score>best[0]:best=(score,ev)
-              if not best or best[0]<.65:continue
+              if not best or best[0]<.45:continue
               ev=best[1];comp=(ev.get('competitions') or [{}])[0]
               cs=comp.get('competitors') or []
               if len(cs)<2:continue
@@ -319,8 +330,8 @@ jobs:
               # map each Kalshi team market to ESPN home/away by name.
               for m in x['markets']:
                   team=m.get('yes_sub_title') or ''
-                  sh=sim(team,x['home']['team']['displayName']);sa=sim(team,x['away']['team']['displayName'])
-                  if max(sh,sa)<.25:continue
+                  sh=team_sim(team,x['home']);sa=team_sim(team,x['away'])
+                  if max(sh,sa)<.35:continue
                   prob=p_home if sh>=sa else 1-p_home
                   quote_jobs.append((r,m,prob,z[2]))
 
