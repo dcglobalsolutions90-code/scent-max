@@ -1,0 +1,28 @@
+name: Probe ESPN historical pregame ratings
+
+on:
+  push:
+    paths:
+      - ".github/workflows/probe-espn-pregame-ratings.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect historical summary predictor
+        run: |
+          python - <<'PY'
+          import json,urllib.request
+          H={'User-Agent':'Mozilla/5.0','Accept':'application/json'}
+          sb='https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=20251122&limit=500'
+          with urllib.request.urlopen(urllib.request.Request(sb,headers=H),timeout=30) as r:j=json.load(r)
+          ev=next((e for e in j.get('events',[]) if 'Jacksonville State' in (e.get('name') or '') and 'Florida International' in (e.get('name') or '')),None)
+          print('EVENT_ID',ev.get('id') if ev else None,'NAME',ev.get('name') if ev else None)
+          if not ev: raise SystemExit(1)
+          u='https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event='+str(ev['id'])
+          with urllib.request.urlopen(urllib.request.Request(u,headers=H),timeout=30) as r:s=json.load(r)
+          for k in ['predictor','pickcenter','againstTheSpread','odds','winprobability','boxscore','gameInfo']:
+            v=s.get(k)
+            print('\nKEY',k,'TYPE',type(v).__name__)
+            print(json.dumps(v,indent=2)[:12000])
+          PY
