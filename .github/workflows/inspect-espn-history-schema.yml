@@ -1,0 +1,28 @@
+name: Inspect historical ESPN schedule schema
+
+on:
+  push:
+    paths:
+      - ".github/workflows/inspect-espn-history-schema.yml"
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect Kansas historical schedule
+        run: |
+          python - <<'PY'
+          import json,urllib.request
+          u='https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams/2305/schedule?season=2025'
+          req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0','Accept':'application/json'})
+          with urllib.request.urlopen(req,timeout=30) as r:j=json.load(r)
+          for e in (j.get('events') or [])[:5]:
+            print('EVENT_KEYS',list(e.keys()))
+            print('STATUS',json.dumps(e.get('status'),indent=2))
+            comp=(e.get('competitions') or [{}])[0]
+            print('COMP_KEYS',list(comp.keys()))
+            print('COMP_STATUS',json.dumps(comp.get('status'),indent=2))
+            print('COMPETITORS',json.dumps(comp.get('competitors'),indent=2)[:4000])
+            print('DATE',e.get('date'))
+            print('---')
+          PY
