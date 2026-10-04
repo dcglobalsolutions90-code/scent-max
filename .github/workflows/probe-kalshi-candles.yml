@@ -1,0 +1,24 @@
+name: Probe Kalshi historical candles
+
+on:
+  push:
+    paths:
+      - ".github/workflows/probe-kalshi-candles.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe one market candle series
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.parse, datetime
+          ticker='KXNCAAFGAME-26JAN08MIAMISS-MIA'
+          start=int(datetime.datetime(2026,1,8,0,0,tzinfo=datetime.timezone.utc).timestamp())
+          end=int(datetime.datetime(2026,1,9,3,0,tzinfo=datetime.timezone.utc).timestamp())
+          q=urllib.parse.urlencode({'start_ts':start,'end_ts':end,'period_interval':60})
+          u='https://external-api.kalshi.com/trade-api/v2/historical/markets/'+ticker+'/candlesticks?'+q
+          req=urllib.request.Request(u,headers={'Accept':'application/json','User-Agent':'Mozilla/5.0'})
+          with urllib.request.urlopen(req,timeout=30) as r:j=json.load(r)
+          print(json.dumps(j,indent=2)[:12000])
+          PY
