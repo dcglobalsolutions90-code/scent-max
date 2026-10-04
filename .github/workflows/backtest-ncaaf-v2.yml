@@ -310,28 +310,30 @@ jobs:
           base=(6,.24,.10,.07,.07)
           print('BASE_HOLDOUT',metrics(hold,base))
 
-          # Fetch historical Kalshi entry quotes for both tune and holdout.
-          # Entry thresholds are selected ONLY on tune; holdout remains untouched.
-          def candle_for_market(m,start):
+          # Replay the full 24-hour pregame Kalshi price path.
+          # The model probability is frozen at each game's analysis cutoff; only market
+          # price/liquidity may change. This mirrors the live bot repeatedly scanning.
+          def candles_for_market(m,start):
               ticker=m['ticker'];ts=int(start.timestamp())
-              # Search from 24h-before kickoff through the full pregame window.
-              q=urllib.parse.urlencode({'start_ts':ts-3600,'end_ts':ts+23*3600,'period_interval':60})
+              kickoff=ts+24*3600
+              q=urllib.parse.urlencode({'start_ts':ts-3600,'end_ts':kickoff,'period_interval':60})
               u=K+'/historical/markets/'+urllib.parse.quote(ticker,safe='')+'/candlesticks?'+q
               try:j=get(u,30,2)
-              except:return None
-              cs=sorted(j.get('candlesticks') or [],key=lambda x:x.get('end_period_ts',0))
-              for c in cs:
-                  if c.get('end_period_ts',0)<ts:continue
+              except:return []
+              out=[]
+              for c in sorted(j.get('candlesticks') or [],key=lambda x:x.get('end_period_ts',0)):
+                  ct=c.get('end_period_ts',0)
+                  if ct<ts or ct>=kickoff:continue
                   try:
                       ask=float((c.get('yes_ask') or {}).get('close'))
                       bid=float((c.get('yes_bid') or {}).get('close'))
                       vol=float(c.get('volume') or 0)
                   except:continue
                   if 0<ask<1 and 0<=bid<=ask:
-                      return {'ask':ask,'bid':bid,'vol':vol,'ts':c.get('end_period_ts')}
-              return None
+                      out.append({'ask':ask,'bid':bid,'vol':vol,'ts':ct})
+              return out
 
-          def collect_quotes(dataset,param):
+          def collect_paths(dataset,param):
               jobs=[]
               for r in dataset:
                   z=predict(r,param)
@@ -345,38 +347,42 @@ jobs:
                       jobs.append((r,m,prob,z[2]))
               out=[]
               with ThreadPoolExecutor(max_workers=18) as ex:
-                  fm={ex.submit(candle_for_market,m,r['entry']):(r,m,prob,qual) for r,m,prob,qual in jobs}
+                  fm={ex.submit(candles_for_market,m,r['entry']):(r,m,prob,qual) for r,m,prob,qual in jobs}
                   for fut in as_completed(fm):
                       r,m,prob,qual=fm[fut]
-                      qv=fut.result()
-                      if not qv:continue
-                      fee=.07*qv['ask']*(1-qv['ask'])
-                      edge=prob-qv['ask']-fee
-                      spread=qv['ask']-qv['bid']
-                      won=str(m.get('result','')).lower()=='yes'
+                      path=fut.result()
+                      if not path:continue
                       out.append({
-                          'prob':prob,'ask':qv['ask'],'bid':qv['bid'],'edge':edge,'spread':spread,
-                          'volume':qv['vol'],'quality':qual,'won':won,'event':r['x']['eventTicker'],
-                          'team':m.get('yes_sub_title'),'start':r['x']['start'].isoformat()
+                          'prob':prob,'quality':qual,'won':str(m.get('result','')).lower()=='yes',
+                          'event':r['x']['eventTicker'],'team':m.get('yes_sub_title'),
+                          'start':r['x']['start'].isoformat(),'path':path
                       })
               return out
 
-          tune_quotes=collect_quotes(tune,best[1])
-          hold_quotes=collect_quotes(hold,best[1])
-          print('TUNE_QUOTES',len(tune_quotes),'HOLDOUT_QUOTES',len(hold_quotes))
+          tune_paths=collect_paths(tune,best[1])
+          hold_paths=collect_paths(hold,best[1])
+          print('TUNE_PATHS',len(tune_paths),'HOLDOUT_PATHS',len(hold_paths))
 
-          def apply_gate(quotes,gate):
-              minprob,minedge,maxspread,minvol,maxask,favprem=gate
+          def apply_gate(paths,gate):
+              minprob,minedge,maxspread,maxask,favprem=gate
               bets=[]
-              for x in quotes:
-                  req=minedge+max(0,x['ask']-.75)*favprem
-                  if (x['prob']>=minprob and x['quality']>=.45 and x['edge']>=req
-                      and x['spread']<=maxspread and x['volume']>=minvol and x['ask']<=maxask):
-                      bets.append(x)
+              for x in paths:
+                  if x['prob']<minprob or x['quality']<.45:continue
+                  entry=None
+                  for qv in x['path']:
+                      ask=qv['ask'];bid=qv['bid']
+                      fee=.07*ask*(1-ask)
+                      edge=x['prob']-ask-fee
+                      req=minedge+max(0,ask-.75)*favprem
+                      if edge>=req and (ask-bid)<=maxspread and ask<=maxask:
+                          entry={**qv,'edge':edge,'req':req}
+                          break
+                  if entry:
+                      bets.append({k:v for k,v in x.items() if k!='path'}|entry)
               return bets
 
           def bet_metrics(bets):
-              if not bets:return {'n':0,'wr':0,'roi':-9,'profit':0,'brier':9,'worst':0}
+              if not bets:return {'n':0,'wr':0,'roi':-9,'profit':0,'brier':9}
               wins=sum(x['won'] for x in bets)
               profit=sum((1-x['ask'] if x['won'] else -x['ask']) for x in bets)
               stake=sum(x['ask'] for x in bets)
@@ -385,30 +391,30 @@ jobs:
               return {'n':len(bets),'wr':wins/len(bets),'roi':roi,'profit':profit,'brier':brier}
 
           gates=[]
-          for minprob in (.56,.58,.60,.62,.64):
-            for minedge in (.02,.03,.04,.05,.06,.08):
-              for maxspread in (.06,.08,.10,.12):
-                for minvol in (0,20,100):
-                  for maxask in (.72,.78,.84,.90,.98):
-                    for favprem in (.10,.20,.30):
-                      g=(minprob,minedge,maxspread,minvol,maxask,favprem)
-                      bm=bet_metrics(apply_gate(tune_quotes,g))
+          for minprob in (.56,.58,.60,.62,.64,.66):
+            for minedge in (.02,.03,.04,.05,.06,.08,.10):
+              for maxspread in (.04,.06,.08,.10,.12):
+                for maxask in (.68,.72,.76,.80,.84,.90):
+                  for favprem in (.10,.20,.30):
+                      g=(minprob,minedge,maxspread,maxask,favprem)
+                      bm=bet_metrics(apply_gate(tune_paths,g))
                       if bm['n']<15:continue
-                      # Prefer repeatable profit with enough bets and calibrated probabilities.
-                      score=bm['roi'] + .10*bm['wr'] - .08*bm['brier'] + min(bm['n'],25)*.002
+                      # The gate must work on training data before holdout is revealed.
+                      if bm['roi']<=0 or bm['brier']>=.25:continue
+                      # Reward ROI/calibration while preferring rules supported by more bets.
+                      score=bm['roi'] + .08*bm['wr'] - .10*bm['brier'] + min(bm['n'],40)*.002
                       gates.append((score,g,bm))
           gates.sort(key=lambda x:x[0],reverse=True)
           if not gates:
-              raise SystemExit('No entry gate produced enough tuning bets')
+              raise SystemExit('No profitable/calibrated entry gate on training price paths')
           best_gate=gates[0]
           print('BEST_ENTRY_GATE',best_gate[1])
           print('TUNE_BET_METRICS',best_gate[2])
 
-          hold_bets=apply_gate(hold_quotes,best_gate[1])
+          hold_bets=apply_gate(hold_paths,best_gate[1])
           hbm=bet_metrics(hold_bets)
           print('HOLDOUT_BET_METRICS',hbm)
-          for x in hold_bets[:40]:print('HOLDOUT_BET',json.dumps(x,sort_keys=True))
-
+          for x in hold_bets[:50]:print('HOLDOUT_BET',json.dumps(x,sort_keys=True))
           hb,ha,he,hn,hhi=hold_metrics
           bb,ba,be,bn,bhi=metrics(hold,base)
           model_pass = hb < .245 and he < .12 and hb <= bb+.01
