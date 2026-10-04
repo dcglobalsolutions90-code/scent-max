@@ -182,7 +182,8 @@ jobs:
                   if dt>=cutoff:continue
                   comp=(e.get('competitions') or [{}])[0]
                   # strict completion gate = no future/live rows
-                  if not comp.get('status',e.get('status',{})).get('type',{}).get('completed',False):
+                  completed=bool((e.get('status') or {}).get('type',{}).get('completed',False) or (comp.get('status') or {}).get('type',{}).get('completed',False))
+                  if not completed:
                       continue
                   cs=comp.get('competitors') or []
                   us=next((c for c in cs if str(c.get('id'))==str(team_id)),None)
