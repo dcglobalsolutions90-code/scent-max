@@ -472,6 +472,50 @@ jobs:
               brier=sum((x['prob']-(1 if x['won'] else 0))**2 for x in bets)/len(bets)
               return {'n':len(bets),'wr':wins/len(bets),'roi':roi,'profit':profit,'brier':brier}
 
+          # Profit diagnostics before gate optimization: isolate whether any
+          # consistent zone exists by entry timing, probability, edge, and price.
+          def first_entry(x,minprob=.56,minedge=.0,maxspread=.12,maxask=.99,hours_min=0,hours_max=24):
+              if x['prob']<minprob or x['quality']<.45:return None
+              kickoff=datetime.datetime.fromisoformat(x['start'])
+              kts=int(kickoff.timestamp())
+              for qv in x['path']:
+                  hrs=(kts-qv['ts'])/3600
+                  if hrs<hours_min or hrs>hours_max:continue
+                  ask=qv['ask'];bid=qv['bid']
+                  fee=.07*ask*(1-ask)
+                  edge=x['prob']-ask-fee
+                  if edge>=minedge and (ask-bid)<=maxspread and ask<=maxask:
+                      return {**x,**qv,'edge':edge,'hrs':hrs}
+              return None
+
+          def diag_metrics(rows):
+              if not rows:return {'n':0,'wr':0,'roi':None,'avg_edge':None,'avg_ask':None}
+              wins=sum(x['won'] for x in rows)
+              stake=sum(x['ask'] for x in rows)
+              profit=sum((1-x['ask'] if x['won'] else -x['ask']) for x in rows)
+              return {
+                  'n':len(rows),
+                  'wr':round(wins/len(rows),4),
+                  'roi':round(profit/stake,4) if stake else None,
+                  'avg_edge':round(sum(x['edge'] for x in rows)/len(rows),4),
+                  'avg_ask':round(sum(x['ask'] for x in rows)/len(rows),4)
+              }
+
+          print('=== TRAIN PROFIT DIAGNOSTICS ===')
+          time_windows=[(12,24),(6,12),(2,6),(.5,2),(0,.5)]
+          for lo,hi in time_windows:
+              rows=[z for x in tune_paths if (z:=first_entry(x,.56,.00,.12,.95,lo,hi))]
+              print('TIME_WINDOW',lo,hi,diag_metrics(rows))
+          for p in (.56,.60,.64,.68,.72,.76):
+              rows=[z for x in tune_paths if (z:=first_entry(x,p,.00,.12,.95,0,24))]
+              print('MINPROB',p,diag_metrics(rows))
+          for edge in (0,.02,.04,.06,.08,.10,.12,.15,.20):
+              rows=[z for x in tune_paths if (z:=first_entry(x,.56,edge,.12,.95,0,24))]
+              print('MINEDGE',edge,diag_metrics(rows))
+          for maxask in (.45,.55,.65,.75,.85,.95):
+              rows=[z for x in tune_paths if (z:=first_entry(x,.56,.00,.12,maxask,0,24))]
+              print('MAXASK',maxask,diag_metrics(rows))
+
           gates=[]
           for minprob in (.56,.58,.60,.62,.64,.66):
             for minedge in (.02,.03,.04,.05,.06,.08,.10):
