@@ -1,0 +1,31 @@
+name: Probe historical Kalshi sports data
+
+on:
+  push:
+    paths:
+      - ".github/workflows/probe-kalshi-history.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe historical markets and candles
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.parse
+          base='https://external-api.kalshi.com/trade-api/v2'
+          urls=[
+            base+'/historical/cutoff',
+            base+'/historical/markets?series_ticker=KXNCAAFGAME&limit=5',
+            base+'/markets?series_ticker=KXNCAAFGAME&status=settled&limit=5'
+          ]
+          for u in urls:
+            print('\nURL',u)
+            req=urllib.request.Request(u,headers={'Accept':'application/json','User-Agent':'Mozilla/5.0'})
+            try:
+              with urllib.request.urlopen(req,timeout=30) as r:
+                j=json.load(r)
+              print(json.dumps(j,indent=2)[:8000])
+            except Exception as e:
+              print('ERROR',repr(e))
+          PY
