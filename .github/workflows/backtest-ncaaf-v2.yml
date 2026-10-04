@@ -320,20 +320,20 @@ jobs:
               y=1 if x['winner_id']==str(x['home']['id']) else 0
               return p,y,q,H,A
 
-          # Chronological split: first 75% tuning, last 25% untouched holdout.
+          # Four chronological blocks: model fit -> probability calibration ->
+          # entry-rule tuning -> untouched final holdout.
           rows_all.sort(key=lambda r:r['x']['start'])
-          cut=int(len(rows_all)*.75)
-          tune=rows_all[:cut];hold=rows_all[cut:]
+          nrows=len(rows_all)
+          c1=int(nrows*.50);c2=int(nrows*.60);c3=int(nrows*.75)
+          model_train=rows_all[:c1]
+          calibration=rows_all[c1:c2]
+          gate_tune=rows_all[c2:c3]
+          hold=rows_all[c3:]
 
-          def metrics(dataset,param):
-              pred=[]
-              for r in dataset:
-                  z=predict(r,param)
-                  if z:pred.append(z[:3])
+          def prob_metrics(pred):
               if not pred:return (9,0,0,0,0)
               brier=sum((p-y)**2 for p,y,q in pred)/len(pred)
               acc=sum((p>=.5)==bool(y) for p,y,q in pred)/len(pred)
-              # calibration error in broad buckets
               bins=defaultdict(list)
               for p,y,q in pred: bins[min(9,int(p*10))].append((p,y))
               ece=sum(len(v)/len(pred)*abs(sum(p for p,y in v)/len(v)-sum(y for p,y in v)/len(v)) for v in bins.values())
@@ -341,20 +341,54 @@ jobs:
               hiacc=sum((p>=.5)==bool(y) for p,y in hi)/len(hi) if hi else 0
               return brier,acc,ece,len(pred),hiacc
 
+          def metrics(dataset,param):
+              pred=[]
+              for r in dataset:
+                  z=predict(r,param)
+                  if z:pred.append(z[:3])
+              return prob_metrics(pred)
+
           scored=[]
           for pset in PARAMS:
-              m=metrics(tune,pset)
-              # objective favors calibration first, then accuracy.
+              m=metrics(model_train,pset)
               obj=m[0]+.45*m[2]-.05*m[1]
               scored.append((obj,pset,m))
           scored.sort(key=lambda x:x[0])
           best=scored[0]
           print('BEST_PARAMS',best[1])
-          print('TUNE_METRICS',best[2])
-          hold_metrics=metrics(hold,best[1])
+          print('MODEL_TRAIN_METRICS',best[2])
+
+          def sigmoid(x):return 1/(1+math.exp(-x))
+          def logit(p):
+              p=max(.001,min(.999,p))
+              return math.log(p/(1-p))
+          calibration_grid=[]
+          raw_cal=[]
+          for r in calibration:
+              z=predict(r,best[1])
+              if z:raw_cal.append(z[:3])
+          for temp in (.55,.70,.85,1.0,1.15):
+              for bias in (-.20,-.10,0,.10,.20):
+                  pred=[(sigmoid(bias+temp*logit(p)),y,q) for p,y,q in raw_cal]
+                  m=prob_metrics(pred)
+                  calibration_grid.append((m[0]+.35*m[2],(temp,bias),m))
+          calibration_grid.sort(key=lambda x:x[0])
+          best_cal=calibration_grid[0]
+          print('BEST_CALIBRATION',best_cal[1])
+          print('CALIBRATION_METRICS',best_cal[2])
+
+          def predict_cal(r,param=best[1],cal=best_cal[1]):
+              z=predict(r,param)
+              if not z:return None
+              p,y,q,H,A=z
+              temp,bias=cal
+              pc=sigmoid(bias+temp*logit(p))
+              return pc,y,q,H,A
+
+          hold_pred=[predict_cal(r)[:3] for r in hold if predict_cal(r)]
+          hold_metrics=prob_metrics(hold_pred)
           print('HOLDOUT_METRICS',hold_metrics)
 
-          # Compare current production-like params.
           base=(6,.24,.10,.07,.07,0)
           print('BASE_HOLDOUT',metrics(hold,base))
 
@@ -381,10 +415,10 @@ jobs:
                       out.append({'ask':ask,'bid':bid,'vol':vol,'ts':ct})
               return out
 
-          def collect_paths(dataset,param):
+          def collect_paths(dataset):
               jobs=[]
               for r in dataset:
-                  z=predict(r,param)
+                  z=predict_cal(r)
                   if not z:continue
                   x=r['x'];p_home=z[0]
                   for m in x['markets']:
@@ -407,9 +441,9 @@ jobs:
                       })
               return out
 
-          tune_paths=collect_paths(tune,best[1])
-          hold_paths=collect_paths(hold,best[1])
-          print('TUNE_PATHS',len(tune_paths),'HOLDOUT_PATHS',len(hold_paths))
+          gate_paths=collect_paths(gate_tune)
+          hold_paths=collect_paths(hold)
+          print('GATE_TUNE_PATHS',len(gate_paths),'HOLDOUT_PATHS',len(hold_paths))
 
           def apply_gate(paths,gate):
               minprob,minedge,maxspread,maxask,favprem=gate
@@ -445,8 +479,8 @@ jobs:
                 for maxask in (.68,.72,.76,.80,.84,.90):
                   for favprem in (.10,.20,.30):
                       g=(minprob,minedge,maxspread,maxask,favprem)
-                      bm=bet_metrics(apply_gate(tune_paths,g))
-                      if bm['n']<15:continue
+                      bm=bet_metrics(apply_gate(gate_paths,g))
+                      if bm['n']<8:continue
                       # The gate must work on training data before holdout is revealed.
                       if bm['roi']<=0 or bm['brier']>=.25:continue
                       # Reward ROI/calibration while preferring rules supported by more bets.
@@ -457,7 +491,7 @@ jobs:
               raise SystemExit('No profitable/calibrated entry gate on training price paths')
           best_gate=gates[0]
           print('BEST_ENTRY_GATE',best_gate[1])
-          print('TUNE_BET_METRICS',best_gate[2])
+          print('GATE_TUNE_BET_METRICS',best_gate[2])
 
           hold_bets=apply_gate(hold_paths,best_gate[1])
           hbm=bet_metrics(hold_bets)
@@ -468,7 +502,7 @@ jobs:
           model_pass = hb < .245 and he < .12 and hb <= bb+.01
           # Trading pass requires more than a one-off result; at least 3 holdout bets,
           # non-negative holdout ROI, and probabilities that remain reasonably calibrated.
-          trading_pass = hbm['n']>=3 and hbm['roi']>=0 and hbm['brier']<.25
+          trading_pass = hbm['n']>=5 and hbm['roi']>0 and hbm['brier']<.25
           passed = model_pass and trading_pass
           print('MODEL_PASS',model_pass)
           print('TRADING_PASS',trading_pass)
