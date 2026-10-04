@@ -59,6 +59,13 @@ jobs:
               ]
               return max([sim(label,v) for v in vals if v] or [0])
 
+          def score_value(c):
+              s=(c or {}).get('score')
+              if isinstance(s,dict):
+                  s=s.get('value',s.get('displayValue'))
+              try:return float(s)
+              except:return None
+
           def parse_event_date(ticker):
               m=re.search(r'-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})',ticker)
               if not m:return None
@@ -135,9 +142,8 @@ jobs:
               if len(cs)<2:continue
               home=next((c for c in cs if c.get('homeAway')=='home'),cs[0])
               away=next((c for c in cs if c.get('homeAway')=='away'),cs[1])
-              try:
-                  hs=float(home.get('score'));as_=float(away.get('score'))
-              except: continue
+              hs=score_value(home);as_=score_value(away)
+              if hs is None or as_ is None:continue
               start=datetime.datetime.fromisoformat(ev['date'].replace('Z','+00:00'))
               matched.append({
                   'date':d,'eventTicker':et,'markets':ms,'espn':ev,'comp':comp,
@@ -189,8 +195,8 @@ jobs:
                   us=next((c for c in cs if str(c.get('id'))==str(team_id)),None)
                   them=next((c for c in cs if str(c.get('id'))!=str(team_id)),None)
                   if not us or not them:continue
-                  try: pf=float(us.get('score'));pa=float(them.get('score'))
-                  except: continue
+                  pf=score_value(us);pa=score_value(them)
+                  if pf is None or pa is None:continue
                   out.append({'dt':dt,'pf':pf,'pa':pa,'win':1 if pf>pa else 0 if pf<pa else .5,'venue':us.get('homeAway')})
               out.sort(key=lambda x:x['dt'],reverse=True)
               return out
